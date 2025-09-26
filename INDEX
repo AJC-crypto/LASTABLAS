@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Documentos – LASTABLAS</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    h1 { color: #333; }
+    ul { line-height: 1.8; }
+    a { color: #0056b3; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Repositorio LASTABLAS</h1>
+  <p>Haz clic en los enlaces para abrir los archivos directamente:</p>
+  <ul>
+    <li><a href="PUERTAS.html" target="_blank">Abrir PUERTAS.html</a></li>
+    <li><a href="PLANO.pdf" target="_blank">Abrir PLANO.pdf</a></li>
+    <li><a href="ACCESOS.html" target="_blank">Abrir ACCESOS.html</a></li>
+    <!-- 🔹 Añade aquí más líneas si subes nuevos archivos -->
+  </ul>
+</body>
+</html>
