@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa · Excel + Logo + Título + Deduplicación + Colores por Grupo (v2)</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous"/>
+
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  #map{width:100%;height:100vh}
+  .leaflet-tile-pane{filter:grayscale(100%)}
+
+  .toolbar{
+    position:absolute;left:50%;transform:translateX(-50%);top:8px;
+    background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:10px;
+    padding:8px 10px;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap; z-index:1000;
+  }
+  .toolbar input[type='number'], .toolbar input[type='text']{width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:6px}
+  .toolbar button,label.btn{padding:6px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer}
+  .toolbar button:hover, .toolbar label.btn:hover{background:#f3f4f6}
+  .small{font-size:11px;color:#555}
+  input[type="file"]{display:none}
+
+  .lbl{position:absolute;background:#fff;border:1px solid rgba(0,0,0,.25);border-radius:6px;padding:2px 6px;font-size:12px;color:#111;box-shadow:0 2px 6px rgba(0,0,0,.25);white-space:nowrap;cursor:pointer}
+  .lbl.active{background:#fffbe6;border-color:#f59e0b}
+  .label-pane{z-index:600}
+
+  /* Leyenda SIEMPRE visible + filtrable */
+  .legend{
+    position:absolute;right:10px;bottom:10px;background:rgba(255,255,255,.96);
+    border:1px solid #ddd;border-radius:12px;padding:10px;font-size:12px;min-width:260px;max-width:380px;z-index:1000;
+  }
+  .legend h4{margin:0 0 8px 0;font-size:13px}
+  .legend .sheet{border-top:1px solid #eee;padding-top:8px;margin-top:8px}
+  .legend .row{display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap}
+  .legend .swatch{width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.2)}
+  .legend .sheet-title{display:flex;align-items:center;gap:8px;font-weight:600}
+  .legend .actions{margin-left:auto;display:flex;gap:6px}
+  .legend .actions button{padding:2px 6px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:11px}
+  .legend .actions button:hover{background:#f3f4f6}
+  .legend .hint{color:#666;font-size:11px;margin-top:6px}
+
+  .status{
+    position:absolute;right:10px;top:10px;background:rgba(255,255,255,.95);
+    border:1px solid #ddd;border-radius:10px;padding:8px 10px;font-size:12px;z-index:1000;max-width:520px;white-space:pre-wrap
+  }
+
+  /* === PIN DE OBRA ANIMADO === */
+  .obra-pin { position: relative; width: 38px; height: 38px; transform: translate(-50%, -100%); pointer-events:auto; }
+  .obra-pin .pin { position:absolute; left:0; top:0; width:38px; height:38px; animation: breathe 1.6s ease-in-out infinite; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+  .obra-pin .halo { position:absolute; left:50%; top:50%; width:14px; height:14px; border-radius:50%; transform: translate(-50%, -20%); background: rgba(211,47,47,.25); animation: pulse 1.6s ease-out infinite; }
+  @keyframes breathe { 0% { transform: scale(0.92); opacity:.95 } 50%{ transform: scale(1.20); opacity:1 } 100%{ transform: scale(0.92); opacity:.95 } }
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(211,47,47,.45); opacity:.9 } 70%{ box-shadow:0 0 0 22px rgba(211,47,47,0); opacity:.15 } 100%{ box-shadow:0 0 0 0 rgba(211,47,47,0); opacity:.9 } }
+
+  /* ====== BARRA DE TÍTULO + LOGO ====== */
+  .titlebar{
+    position:absolute; right:10px; bottom:10px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; z-index:1100;
+    background:rgba(255,255,255,.95); border:1px solid #ddd; border-radius:12px; padding:8px 12px;
+  }
+  .titlebar img{ max-height:56px; max-width:220px; object-fit:contain; border-radius:6px; border:1px solid #eee }
+  .titlebar .title{ min-width:260px; font-weight:700; font-size:16px; outline:none; padding:4px 8px; border-radius:6px; border:1px dashed transparent; text-align:right; }
+  .titlebar .title:focus{ border-color:#9ca3af; background:#fff }
+  .titlebar img{ max-height:48px; max-width:180px; object-fit:contain; border-radius:6px; border:1px solid #eee }
+  .titlebar .title{ min-width:240px; font-weight:700; font-size:16px; outline:none; padding:4px 8px; border-radius:6px; border:1px dashed transparent; }
+  .titlebar .title:focus{ border-color:#9ca3af; background:#fff }
+  /* Etiqueta fija abajo-izquierda */
+  .corner-tag{
+    position:absolute; left:10px; bottom:10px; z-index:1100;
+    background:rgba(255,255,255,.95); border:1px solid #ddd; border-radius:10px;
+    padding:8px 12px; font-size:12px; font-weight:700; letter-spacing:.3px;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="titlebar">
+  <img id="logoImg" alt="Logo" style="display:none"/>
+  <div id="mapTitle" class="title" contenteditable="true" spellcheck="false" title="Escribe aquí el título del plano">Título del plano</div>
+</div>
+
+<div class="toolbar">
+  <!-- Obra -->
+  <button id="btnPick">📍 Fijar obra por click</button>
+  <label>lat,lon: <input id="inpLatLon" type="text" placeholder="37.3891,-5.9845"></label>
+  <button id="btnSetLatLon">Aplicar</button>
+
+  <!-- Excel -->
+  <label for="fileXLSX" class="btn">📄 Cargar Excel (A/B/C)</label>
+  <input id="fileXLSX" type="file" accept=".xlsx,.xls,.xlsm"/>
+
+  <!-- PDFs -->
+  <label for="filePDF" class="btn">📑 Cargar PDFs (cartas)</label>
+  <input id="filePDF" type="file" accept="application/pdf" multiple/>
+
+  <!-- Logo -->
+  <label for="fileLogo" class="btn">🖼️ Logo</label>
+  <input id="fileLogo" type="file" accept="image/jpeg,image/png"/>
+
+  <!-- Varios -->
+  <button id="btnFit">Zoom a todo</button>
+  <label>Radio (km): <input id="km" type="number" min="1" step="1" value=""></label>
+  <button id="btnApplyKm">Aplicar</button>
+  <button id="btnClearKm">Quitar radio</button>
+  <label><input id="toggleLabels" type="checkbox" checked> Etiquetas permanentes</label>
+  <span class="small">Destino: <b id="destinoText">La Pañoleta, Sevilla</b></span>
+</div>
+
+<div class="status" id="statusBox">Cargando librerías…</div>
+
+<!-- Leyenda SIEMPRE visible -->
+<div class="legend" id="legend">
+  <h4>Grupos cargados</h4>
+  <div id="legendBody">
+    <div class="hint">Carga un Excel (A=Grupo, B=Empresa, C=Posición). Aquí aparecerán filtros por hoja y grupo.</div>
+  </div>
+</div>
+
+<div class="corner-tag">FUENTES DE SUMINISTRO Y SUBCONTRATACIONES</div>
+
+<!-- Cargadores con fallback -->
+<script>
+(function(){
+  function loadScript(src, onload){
+    const s=document.createElement('script');
+    s.src=src; s.crossOrigin='anonymous'; s.onload=onload;
+    s.onerror=()=>console.error('Error cargando', src);
+    document.head.appendChild(s);
+  }
+  // Leaflet
+  loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', ()=>{
+    if(!window.L){
+      loadScript('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js', ()=>{});
+    }
+  });
+  // XLSX
+  loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', ()=>{
+    if(!window.XLSX){
+      loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.core.min.js', ()=>{});
+    }
+  });
+})();
+</script>
+
+<script>
+// ===== Utilidades de estado / errores =====
+const statusBox = document.getElementById('statusBox');
+function setStatus(msg){ statusBox.textContent = msg; }
+window.onerror = function(message, source, lineno, colno, error){
+  setStatus('Error JS: ' + message + '\nLínea: ' + lineno + ':' + colno);
+};
+window.addEventListener('unhandledrejection', (e)=>{
+  setStatus('Promesa rechazada: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+});
+
+function waitFor(testFn, timeoutMs=8000){
+  return new Promise((res, rej)=>{
+    const t0=Date.now();
+    const it=setInterval(()=>{
+      if(testFn()){ clearInterval(it); res(true); }
+      else if(Date.now()-t0>timeoutMs){ clearInterval(it); rej(new Error('timeout')); }
+    }, 50);
+  });
+}
+
+(async function boot(){
+  try{ setStatus('Cargando Leaflet…'); await waitFor(()=>!!window.L, 10000); }
+  catch{ setStatus('No se pudo cargar Leaflet. Revisa la red / CDN.'); return; }
+
+  setStatus('Iniciando mapa…');
+
+  // ===== Config básica =====
+  const DESTINO_TEXTO_INICIAL = 'La Pañoleta, Sevilla';
+  const destinoTextEl = document.getElementById('destinoText');
+  destinoTextEl.textContent = DESTINO_TEXTO_INICIAL;
+
+  // ===== Mapa =====
+  const map = L.map('map',{zoomControl:true}).setView([40.2,-3.7],5.8);
+  let base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  base.on('tileerror', ()=>{
+    setStatus('Fallo OSM. Cambiando a tiles de Carto…');
+    try{ map.removeLayer(base); }catch(_){ }
+    base = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{ maxZoom:19, attribution:'&copy; OpenStreetMap &copy; CARTO' }).addTo(map);
+  });
+
+  const labelPane = map.createPane('labels'); labelPane.classList.add('label-pane');
+  const obraPane = map.createPane('obraPane'); obraPane.style.zIndex = 1200;
+
+  // ===== Utilidades =====
+  const CATEGORY_COLORS = {
+    'Suministradores': '#2e7d32',   // verde
+    'Subcontratistas': '#1565c0',   // azul
+    'Gestores de Residuos': '#ef6c00' // naranja
+  };
+
+  // Generador determinista de color por (sheet, group)
+  const groupColorMap = {}; // key: sheet||group -> color hex
+  function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=(h<<5)-h+str.charCodeAt(i); h|=0; } return Math.abs(h); }
+  function hsvToRgb(h,s,v){ let f=(n,k=(n+h/60)%6)=>v-v*s*Math.max(Math.min(k,4-k,1),0); return [f(5),f(3),f(1)]; }
+  function rgbToHex(r,g,b){ const c=x=>('0'+Math.round(x*255).toString(16)).slice(-2); return `#${c(r)}${c(g)}${c(b)}`; }
+  function colorForGroup(sheet, group){
+    const key = sheet+'::'+group;
+    if(groupColorMap[key]) return groupColorMap[key];
+    const baseHue = (hashCode(key)%360);
+    const sat = 0.70, val = 0.95;
+    const [r,g,b] = hsvToRgb(baseHue, sat, val);
+    const hex = rgbToHex(r,g,b);
+    groupColorMap[key] = hex; return hex;
+  }
+
+  function markerIcon(color='#333'){
+    const svg=encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='"+color+"' d='M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z'/></svg>");
+    return L.icon({iconUrl:'data:image/svg+xml;charset=UTF-8,'+svg,iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
+  }
+  function sheetCategoryColor(sheet){ return CATEGORY_COLORS[sheet] || '#333'; }
+  function catColorAlpha(sheet, alpha){
+    // convert hex to rgba string with alpha
+    const hex = sheetCategoryColor(sheet).replace('#','');
+    const r=parseInt(hex.substring(0,2),16), g=parseInt(hex.substring(2,4),16), b=parseInt(hex.substring(4,6),16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function createObraDivIcon(){
+    const html = `
+      <div class="obra-pin" aria-label="Localización de la obra">
+        <div class="halo"></div>
+        <svg class="pin" viewBox="0 0 24 24" width="38" height="38" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#d32f2f" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
+        </svg>
+      </div>`;
+    return L.divIcon({ className:'', html, iconSize:[0,0], iconAnchor:[0,0], popupAnchor:[0,-28] });
+  }
+
+  function slug(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+  function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+  function haversineKm(lat1, lng1, lat2, lng2){
+    const R=6371, toRad=d=>d*Math.PI/180;
+    const dLat=toRad(lat2-lat1), dLon=toRad(lng2-lng1);
+    const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  }
+  function gmapsDirUrl(destLat, destLng){
+    return `https://www.google.com/maps/dir/?api=1&origin=${ORIGIN.lat},${ORIGIN.lng}&destination=${destLat},${destLng}&travelmode=driving`;
+  }
+
+  // === Obra (ORIGIN) ===
+  const destinoText = document.getElementById('destinoText');
+  let ORIGIN = { lat: 37.3891, lng: -5.9845, name: destinoText ? destinoText.textContent : 'Obra' };
+  let obraMarker = null;
+  let circle = null;
+
+  function refreshCircle(){
+    const v=parseFloat(document.getElementById('km').value);
+    if(circle){ map.removeLayer(circle); circle=null; }
+    if(!isNaN(v) && v>0){ circle = L.circle([ORIGIN.lat,ORIGIN.lng], {radius: v*1000, color:'#444', weight:1, fillOpacity:0.05}).addTo(map); }
+  }
+  function setOrigin(lat, lng, name=null){
+    ORIGIN.lat = lat; ORIGIN.lng = lng; if(name) ORIGIN.name = name;
+    destinoText.textContent = name ? name : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    if(!obraMarker){
+      obraMarker = L.marker([lat,lng], { icon: createObraDivIcon(), draggable:true, pane:'obraPane', zIndexOffset: 100000 })
+        .bindPopup(`<b>Obra</b><br>${destinoText.textContent}`)
+        .addTo(map);
+      obraMarker.on('add', ()=>{ try{ obraMarker.bringToFront(); }catch(_){} });
+      obraMarker.on('dragend', ()=>{ const p = obraMarker.getLatLng(); setOrigin(p.lat, p.lng); obraMarker.setPopupContent(`<b>Obra</b><br>${destinoText.textContent}`).openPopup(); refreshCircle(); });
+    } else {
+      obraMarker.setLatLng([lat,lng]); obraMarker.setPopupContent(`<b>Obra</b><br>${destinoText.textContent}`); try{ obraMarker.bringToFront(); }catch(_){}
+    }
+    refreshCircle(); applyFilters(); layers.forEach(Lr=>{ if (Lr.marker && Lr.marker.isPopupOpen && Lr.marker.isPopupOpen()) { Lr.popup.setContent(Lr.popupHtml()); }});
+  }
+
+  // ===== PDFs (match parcial robusto + unicidad por empresa) =====
+  let pdfFiles = [];
+  const STOPWORDS = new Set(['sa','sau','sl','slu','sll','sae','sociedad','anonima','anónima','limited','ltd','company','compania','compañia','grupo','gr','obras','servicios','service','ingenieria','ingeniería','construcciones','construccion','industrial','industriales','de','del','la','el','los','las','y','and','the','hijos','hermanos','herm','hijas']);
+  const GENERICOS = new Set(['hormigon','hormigones','ferralla','acero','cemento','prefabricados','agregados','transportes','canteras','movimiento','tierras','maquinaria','suministros','gestores','residuos']);
+
+  function normalizeCompanyName(name){
+    let s = slug(name).replace(/[&]/g,' y ');
+    s = s.replace(/\b(s\.?a\.?u?|s\.?a\.?|s\.?l\.?u?|s\.?l\.?|sau|sa|slu|sl)\b/g,' ');
+    s = s.replace(/\b(grupo|obras|servicios|ingenieria|ingeniería|construcciones|construccion)\b/g,' ');
+    return s.replace(/\s+/g,' ').trim();
+  }
+  function tokensFromSlug(str){ return new Set(slug(str).split(/[^a-z0-9áéíóúüñ]+/i).filter(t => t && t.length>=3 && !STOPWORDS.has(t))); }
+  function acronymFromTokens(tokens){ const arr = Array.from(tokens); if(arr.length<2) return ''; return arr.map(t=>t[0]).join(''); }
+
+  const COMPANY_PDF_UNIQUE = new Map(); // key: normalized company -> best single PDF
+
+  function scorePdfForCompany(pdf, cTokens, coreSlug){
+    // Base por intersección de tokens, bonus por token "propio" (no genérico)
+    const inter = Array.from(cTokens).filter(t => pdf.tokens.has(t));
+    let score = inter.length * 2;
+    if(pdf.slug.includes(coreSlug) && coreSlug.length>=5) score += 5;
+    if(inter.some(t=>t.length>=5)) score += 2;
+    // bonus por contener un token "propio" (no genérico)
+    if(inter.some(t=>!GENERICOS.has(t))) score += 3;
+    return score;
+  }
+
+  function selectUniquePdfForCompany(company){
+    const core = normalizeCompanyName(company);
+    if(COMPANY_PDF_UNIQUE.has(core)) return COMPANY_PDF_UNIQUE.get(core);
+    if(!pdfFiles.length) return null;
+    const cTokens = tokensFromSlug(core);
+    const coreSlug = slug(core);
+    let best = null, bestScore = 0;
+    for(const p of pdfFiles){
+      const sc = scorePdfForCompany(p, cTokens, coreSlug);
+      if(sc>bestScore){ best = p; bestScore = sc; }
+    }
+    if(bestScore<2) best = null; // evitar falsos positivos
+    COMPANY_PDF_UNIQUE.set(core, best);
+    return best;
+  }
+
+  function indexPdfs(fileList){
+    pdfFiles = [];
+    for(const f of fileList){
+      const url = URL.createObjectURL(f);
+      const name = f.name || 'documento.pdf';
+      const s = slug(name);
+      pdfFiles.push({ name, url, slug: s, tokens: tokensFromSlug(s) });
+    }
+    // Recalcular asignaciones únicas para empresas ya cargadas
+    COMPANY_PDF_UNIQUE.clear();
+    layers.forEach(Lr=>{ if(Lr && Lr.company){ selectUniquePdfForCompany(Lr.company); }});
+    layers.forEach(Lr=>{ if (Lr.marker && Lr.marker.isPopupOpen && Lr.marker.isPopupOpen()) { Lr.popup.setContent(Lr.popupHtml()); }});
+  }
+
+  // ===== Etiquetas/Capas =====
+  let activeLblEl=null;
+  function setActiveLabelById(id){ if(activeLblEl) activeLblEl.classList.remove('active'); const el=document.querySelector(`.lbl[data-id="${id}"]`); if(el){ el.classList.add('active'); activeLblEl=el; } }
+  function clearActiveLabel(){ if(activeLblEl){ activeLblEl.classList.remove('active'); activeLblEl=null; } }
+
+  let geoCache={}; const GEO_CACHE_KEY='geoCacheV3';
+  try{ geoCache=JSON.parse(localStorage.getItem(GEO_CACHE_KEY)||'{}'); }catch(e){ geoCache={}; }
+  async function geocode(text){
+    const key=slug(text); if(geoCache[key]) return geoCache[key]; await sleep(250);
+    const url=new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format','json'); url.searchParams.set('limit','1'); url.searchParams.set('q', text+', España');
+    const res=await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!res.ok) return null; const data=await res.json();
+    if(Array.isArray(data)&&data[0]){ const r={lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)}; geoCache[key]=r; localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(geoCache)); return r; }
+    return null;
+  }
+
+  let layers=[]; let bounds=[]; const legendBody = document.getElementById('legendBody');
+
+  function normalizeSheetName(name){
+    const n = slug(name);
+    if(n.includes('sumin')) return 'Suministradores';
+    if(n.includes('subc'))  return 'Subcontratistas';
+    if(n.includes('gest'))  return 'Gestores de Residuos';
+    return name || 'Hoja';
+  }
+
+  let filters = {};
+  function renderLegend(){
+    const sheets = Object.keys(filters);
+    if(!sheets.length){ legendBody.innerHTML = `<div class="hint">Carga un Excel (A=Grupo, B=Empresa, C=Posición). Aquí aparecerán filtros por hoja y grupo.</div>`; return; }
+    const frag = [];
+    sheets.forEach(sheet=>{
+      const sheetChecked = !!filters[sheet].__checked;
+      const groups = filters[sheet].groups || {};
+      const sheetColor = sheetCategoryColor(sheet);
+      frag.push(`
+        <div class="sheet">
+          <div class="sheet-title">
+            <span class="swatch" style="background:${sheetColor}"></span>
+            <label><input type="checkbox" class="chk-sheet" data-sheet="${sheet}" ${sheetChecked?'checked':''}> ${sheet}</label>
+            <div class="actions">
+              <button class="btn-all" data-sheet="${sheet}">Todos</button>
+              <button class="btn-none" data-sheet="${sheet}">Ninguno</button>
+            </div>
+          </div>
+      `);
+      Object.keys(groups).forEach(g=>{
+        const on = !!groups[g];
+        const gcol = colorForGroup(sheet,g);
+        frag.push(`
+          <div class="row">
+            <span class="swatch" style="background:${gcol}"></span>
+            <label style="flex:1 1 auto"><input type="checkbox" class="chk-group" data-sheet="${sheet}" data-group="${g}" ${on?'checked':''}> ${g}</label>
+          </div>
+        `);
+      });
+      frag.push(`</div>`);
+    });
+    legendBody.innerHTML = frag.join('');
+
+    legendBody.querySelectorAll('.chk-sheet').forEach(el=>{
+      el.addEventListener('change', ()=>{ const s=el.dataset.sheet; const val=el.checked; filters[s].__checked = val; Object.keys(filters[s].groups).forEach(g=> filters[s].groups[g]=val); applyFilters(); renderLegend(); });
+    });
+    legendBody.querySelectorAll('.chk-group').forEach(el=>{
+      el.addEventListener('change', ()=>{ const s=el.dataset.sheet; const g=el.dataset.group; filters[s].groups[g] = el.checked; const anyOn = Object.values(filters[s].groups).some(v=>v); filters[s].__checked = anyOn; applyFilters(); renderLegend(); });
+    });
+    legendBody.querySelectorAll('.btn-all').forEach(btn=>{ btn.addEventListener('click', ()=>{ const s=btn.dataset.sheet; filters[s].__checked = true; Object.keys(filters[s].groups).forEach(g=> filters[s].groups[g]=true); applyFilters(); renderLegend(); }); });
+    legendBody.querySelectorAll('.btn-none').forEach(btn=>{ btn.addEventListener('click', ()=>{ const s=btn.dataset.sheet; filters[s].__checked = false; Object.keys(filters[s].groups).forEach(g=> filters[s].groups[g]=false); applyFilters(); renderLegend(); }); });
+  }
+
+  function inKmRadius(lat2,lng2){
+    const v=parseFloat(document.getElementById('km').value); if(isNaN(v) || v<=0) return true;
+    const R=6371,toRad=d=>d*Math.PI/180; const dLat=toRad(lat2-ORIGIN.lat), dLon=toRad(lng2-ORIGIN.lng);
+    const a=Math.sin(dLat/2)**2 + Math.cos(toRad(ORIGIN.lat))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const d=R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    return d<=v+1e-9;
+  }
+
+  function applyFilters(){
+    layers.forEach(Lr=>{
+      const sheetOn = filters[Lr.sheet]?.__checked ?? true;
+      const groupOn = filters[Lr.sheet]?.groups?.[Lr.group] ?? true;
+      const radiusOk = inKmRadius(Lr.lat, Lr.lng);
+      const show = sheetOn && groupOn && radiusOk;
+      if(show){ if(!map.hasLayer(Lr.marker)) Lr.marker.addTo(map); }
+      else{ if(map.hasLayer(Lr.marker)) map.removeLayer(Lr.marker); }
+    });
+    layoutLabels(); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} }
+  }
+
+  function layoutLabels(){
+    document.querySelectorAll('.lbl').forEach(el=>el.remove());
+    if(!document.getElementById('toggleLabels').checked) return;
+    const vis=layers.filter(Lr=> map.hasLayer(Lr.marker));
+    const pane=document.querySelector('.label-pane');
+    const occ=[]; function ov(a,b){return !(b.x>a.x+a.w || b.x+b.w<a.x || b.y>a.y+a.h || b.y+b.h<a.y);}    
+    const meas=document.createElement('div'); meas.className='lbl'; meas.style.left='-1000px'; meas.style.top='-1000px'; meas.style.visibility='hidden'; pane.appendChild(meas);
+    vis.forEach(Lr=>{
+      const pt=map.latLngToLayerPoint([Lr.lat,Lr.lng]);
+      meas.textContent=Lr.title||'·';
+      const bb=meas.getBoundingClientRect(); const w=bb.width,h=bb.height;
+      const steps=[[0,-18],[18,-18],[18,0],[18,18],[0,18],[-18,18],[-18,0],[-18,-18]];
+      let placed=null;
+      for(let r=1;r<=7 && !placed;r++){
+        for(let k=0;k<steps.length && !placed;k++){
+          const x=pt.x+steps[k][0]*r, y=pt.y+steps[k][1]*r, rect={x,y,w:w+12,h:h+8}, pad={x:x-4,y:y-4,w:w+20,h:h+16};
+          if(occ.every(rr=>!ov(pad,rr))) placed=rect;
+        }
+      }
+      if(!placed) placed={x:pt.x+12,y:pt.y-(h+20),w:w+12,h:h+8};
+      occ.push(placed);
+
+      const div=document.createElement('div');
+      div.className='lbl';
+      div.dataset.id = Lr.id;
+      div.style.left=placed.x+'px';
+      div.style.top=placed.y+'px';
+      // Colores de etiqueta por CATEGORÍA (requisito 2)
+      div.style.borderColor = sheetCategoryColor(Lr.sheet);
+      div.style.background = catColorAlpha(Lr.sheet, 0.28);
+      div.textContent=Lr.title||'·';
+      div.onclick=()=>{ map.openPopup(Lr.popup, [Lr.lat,Lr.lng]); };
+      pane.appendChild(div);
+    });
+    meas.remove(); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} }
+  }
+  map.on('moveend zoomend', layoutLabels);
+  window.addEventListener('resize', layoutLabels);
+
+  function clearAll(){ layers.forEach(Lr=> map.removeLayer(Lr.marker)); layers=[]; bounds=[]; companySeenBySheet.clear(); }
+
+  // ===== POPUPS =====
+  function addPoint({sheet, group, company, place, coord}){
+    const pinColor = colorForGroup(sheet, group);     // Requisito 1: misma chincheta por grupo
+    function popupHtml(){
+      const km = haversineKm(ORIGIN.lat, ORIGIN.lng, coord.lat, coord.lng);
+      const kmTxt = (km >= 100) ? `${km.toFixed(0)} km` : `${km.toFixed(1)} km`;
+      const url = gmapsDirUrl(coord.lat, coord.lng);
+      const uniquePdf = selectUniquePdfForCompany(company);
+      const pdfLinks = uniquePdf
+        ? `<ul style="margin:4px 0 0 16px;padding:0"><li style="margin:2px 0"><a href="${uniquePdf.url}" target="_blank" rel="noopener">📄 ${uniquePdf.name}</a></li></ul>`
+        : `<span style="color:#999">Sin PDF asociado</span>`;
+      return `
+        <div style="font:14px Arial;max-width:480px">
+          <h3 style="margin:0 0 4px 0;font-size:16px">${company}</h3>
+          <div style="font-size:12px;color:#444;margin:4px 0">Hoja: <b>${sheet}</b> · Grupo: <b>${group}</b></div>
+          <div style="font-size:12px;color:#666">Posición: ${place}</div>
+          <div style="font-size:12px;color:#111;margin-top:6px">Distancia a obra: <b>${kmTxt}</b></div>
+          <div style="margin-top:6px"><a href="${url}" target="_blank" rel="noopener" style="font-size:12px;">🧭 Ver ruta en Google&nbsp;Maps</a></div>
+          <div style="font-size:12px;color:#111;margin-top:8px">Carta de compromiso:</div>
+          ${pdfLinks}
+          <div style="font-size:11px;color:#666;margin-top:8px">Coord: ${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}</div>
+        </div>`;
+    }
+    const popup = L.popup({autoPan:true, closeButton:true});
+    const marker = L.marker([coord.lat, coord.lng], {icon: markerIcon(pinColor)});
+    marker.bindPopup(popup).addTo(map);
+
+    const id = `pt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    marker.on('popupopen', ()=>{ popup.setContent(popupHtml()); });
+
+    layers.push({ id, marker, popup, popupHtml, lat:coord.lat, lng:coord.lng, title:company, sheet, group, company });
+    bounds.push([coord.lat, coord.lng]);
+  }
+
+  // ===== Deduplicación por empresa dentro de la misma HOJA (categoría) =====
+  // Si la empresa aparece repetida en la misma hoja y localización ~igual, solo una etiqueta.
+  const companySeenBySheet = new Map(); // key: sheet -> Map(normalized company -> array of coords)
+  function isDuplicateInSheet(sheet, company, coord){
+    const norm = normalizeCompanyName(company);
+    if(!companySeenBySheet.has(sheet)) companySeenBySheet.set(sheet, new Map());
+    const mapCompany = companySeenBySheet.get(sheet);
+    if(!mapCompany.has(norm)){ mapCompany.set(norm, [coord]); return false; }
+    const arr = mapCompany.get(norm);
+    // considerar duplicado si a < 75 m del existente
+    const dup = arr.some(c => haversineKm(c.lat,c.lng,coord.lat,coord.lng) < 0.075);
+    if(!dup) arr.push(coord);
+    return dup;
+  }
+
+  // ===== Excel =====
+  async function handleExcel(file){
+    try{
+      if(!window.XLSX){ setStatus('Cargando motor Excel…'); await waitFor(()=>!!window.XLSX, 10000); }
+    }catch{ setStatus('No se pudo cargar XLSX. ¿Bloqueo de CDN?'); return; }
+
+    try{
+      clearAll();
+      setStatus('Leyendo Excel…');
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, {type:'array'});
+
+      filters = {}; let added = 0;
+
+      for(const rawName of wb.SheetNames){
+        const alias = normalizeSheetName(rawName);
+        const sheet = wb.Sheets[rawName]; if(!sheet) continue;
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', blankrows:false}); if(!rows || !rows.length) continue;
+
+        const first = rows[0].map(v=>String(v).toLowerCase());
+        const looksHeader = first.join(' ').includes('grupo') || first.join(' ').includes('tipo') || first.join(' ').includes('empresa') || first.join(' ').includes('posición') || first.join(' ').includes('posicion') || first.join(' ').includes('localización') || first.join(' ').includes('localizacion');
+        const dataRows = looksHeader ? rows.slice(1) : rows;
+
+        if(!filters[alias]) filters[alias] = { __checked: true, groups: {} };
+
+        for(const r of dataRows){
+          const groupRaw = (r[0] ?? '').toString().trim();
+          const company = (r[1] ?? '').toString().trim();
+          const place   = (r[2] ?? '').toString().trim();
+          if(!company || !place) continue;
+          const groupKey = groupRaw || '(Sin grupo)';
+          if(!(groupKey in filters[alias].groups)) filters[alias].groups[groupKey] = true;
+
+          let coord = null;
+          const maybeCoord = place.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+          if(maybeCoord){ coord = {lat: parseFloat(maybeCoord[1]), lng: parseFloat(maybeCoord[3])}; }
+          else{ coord = await geocode(place); }
+          if(!coord) { console.warn('No geocodable:', company, place); continue; }
+
+          // Deduplicación dentro de la misma hoja (si coord ~igual) – requisitos 4 y 5
+          if(isDuplicateInSheet(alias, company, coord)) continue;
+
+          // Asignación de PDF único por empresa (se calculará al abrir popup si aún no hay)
+          selectUniquePdfForCompany(company);
+
+          addPoint({sheet: alias, group: groupKey, company, place, coord});
+          added++;
+        }
+      }
+
+      renderLegend(); applyFilters();
+
+      if(added){ if(bounds.length) map.fitBounds(bounds, {padding:[20,20]}); layoutLabels(); setStatus(`Cargado: ${added} punto(s) en ${Object.keys(filters).length} hoja(s).`); }
+      else{ setStatus('Excel leído pero no se añadieron puntos. Revisa columnas: A=Grupo, B=Empresa, C=Posición.'); }
+    }catch(err){ console.error(err); setStatus('Error leyendo el Excel. Detalle en consola.\n' + (err && (err.stack || err.message) || err)); }
+  }
+
+  // ===== Controles =====
+  document.getElementById('btnFit').onclick = ()=>{ 
+    const all = [...bounds]; if(obraMarker){ all.push([ORIGIN.lat, ORIGIN.lng]); }
+    if(all.length) map.fitBounds(all,{padding:[20,20]}); else map.setView([ORIGIN.lat,ORIGIN.lng], 11);
+    if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} }
+  };
+  document.getElementById('btnApplyKm').onclick = ()=>{ refreshCircle(); applyFilters(); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} } };
+  document.getElementById('btnClearKm').onclick = ()=>{ document.getElementById('km').value=''; refreshCircle(); applyFilters(); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} } };
+  document.getElementById('km').addEventListener('input', ()=>{ refreshCircle(); applyFilters(); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} } });
+
+  document.getElementById('fileXLSX').addEventListener('change', (e)=>{ const f = e.target.files && e.target.files[0]; if(f){ handleExcel(f); } });
+  document.getElementById('filePDF').addEventListener('change', (e)=>{ const files = e.target.files; if(files && files.length){ indexPdfs(files); setStatus(`Cargados ${files.length} PDF(s). Asociación única por empresa.`); } });
+
+  // Logo
+  document.getElementById('fileLogo').addEventListener('change', (e)=>{
+    const f = e.target.files && e.target.files[0]; if(!f) return; const img = document.getElementById('logoImg');
+    const url = URL.createObjectURL(f); img.src = url; img.style.display='block';
+    // Persistencia simple
+    const reader = new FileReader(); reader.onload = ()=>{ try{ localStorage.setItem('logoDataURL', reader.result); }catch(_){} }; reader.readAsDataURL(f);
+  });
+  // Persistir/recuperar título
+  const titleEl = document.getElementById('mapTitle');
+  try{ const prevT = localStorage.getItem('mapTitle'); if(prevT) titleEl.textContent = prevT; }catch(_){ }
+  titleEl.addEventListener('input', ()=>{ try{ localStorage.setItem('mapTitle', titleEl.textContent||''); }catch(_){ } });
+  // Restaurar logo si existía
+  try{ const prevLogo = localStorage.getItem('logoDataURL'); if(prevLogo){ const img=document.getElementById('logoImg'); img.src=prevLogo; img.style.display='block'; } }catch(_){ }
+
+  // Modo “pick” con click
+  let picking=false; const btnPick = document.getElementById('btnPick');
+  function setPicking(on){ picking = on; btnPick.textContent = picking ? '✅ Click en el mapa… (ESC para cancelar)' : '📍 Fijar obra por click'; btnPick.style.borderColor = picking ? '#16a34a' : '#ddd'; }
+  btnPick.onclick = ()=> setPicking(!picking);
+  map.on('click', (e)=>{ if(!picking) return; setOrigin(e.latlng.lat, e.latlng.lng); if(obraMarker) obraMarker.openPopup(); setPicking(false); setStatus('Obra fijada por click.'); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} } });
+  window.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && picking) setPicking(false); });
+
+  // Aplicar lat,lon manual
+  document.getElementById('btnSetLatLon').onclick = ()=>{
+    const val = (document.getElementById('inpLatLon').value||'').trim();
+    const m = val.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+    if(!m){ setStatus('Formato lat,lon inválido. Ej: 37.3891,-5.9845'); return; }
+    const lat=parseFloat(m[1]), lng=parseFloat(m[3]);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)){ setStatus('lat/lon no numéricos.'); return; }
+    setOrigin(lat,lng); map.setView([lat,lng], 13); if(obraMarker) obraMarker.openPopup(); setStatus('Obra fijada por lat,lon.'); if(obraMarker){ try{ obraMarker.bringToFront(); }catch(_){} }
+  };
+
+  // ===== Inicio =====
+  setOrigin(ORIGIN.lat, ORIGIN.lng, ORIGIN.name); map.setView([ORIGIN.lat, ORIGIN.lng], 11); renderLegend(); setStatus('Listo. Carga Excel y PDFs. Logo y título opcionales.');
+})();
+</script>
+
+</body>
+</html>

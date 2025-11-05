@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan de Rutas y Accesos a Obra · KML/KMZ</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+
+<!-- KML/KMZ -->
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js" crossorigin="anonymous"></script>
+
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  #app{display:grid;grid-template-columns:380px 1fr 440px;height:100vh}
+  #panelIzq,#panelRuta{border-right:1px solid #e8e8e8;display:flex;flex-direction:column;background:#fff}
+  #panelRuta{border-left:1px solid #e8e8e8;border-right:none}
+  header{padding:12px 14px;border-bottom:1px solid #eee;background:#fff}
+  h1{font-size:16px;margin:0 0 6px}
+  #map{width:100%;height:100%;background:#f8fafc}
+  #search{width:100%;padding:8px;border:1px solid #ddd;border-radius:8px}
+  #actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  #actions button, #fileBtn, .mode button{padding:6px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer}
+  #actions button:hover, #fileBtn:hover, .mode button:hover{background:#f4f4f4}
+  .mode{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .mode .on{outline:2px solid #111; background:#eef2ff}
+  #list{overflow:auto;flex:1;border-top:1px solid #f0f0f0;background:#fff}
+  .item{padding:10px 14px;border-bottom:1px solid #f3f3f3;cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+  .item:hover{background:#f7f9ff}
+  .item.active{background:#fff7ed;border-left:4px solid #fb923c}
+  .subtitle{font-size:12px;color:#666}
+  .item .mini-actions{display:flex;gap:6px}
+  .mini-actions button{font-size:12px;padding:4px 6px;border-radius:6px}
+
+  #resumen{padding:10px 14px;border-top:1px solid #eee;background:#fafafa}
+  .metric{font-variant-numeric:tabular-nums}
+  .chip{display:inline-block;padding:2px 8px;border:1px solid #ddd;border-radius:999px;font-size:12px;background:#fff;margin-right:6px}
+  .hint{font-size:12px;color:#666;margin-top:8px}
+  .drop{border:1px dashed #bbb;border-radius:10px;padding:8px;text-align:center;margin-top:8px;color:#666}
+  .drop.drag{background:#f7fbff;border-color:#79a6ff;color:#2a4ea6}
+
+  .panel-block{padding:8px 14px;border-top:1px solid #eee;background:#fff}
+  .legend-points{display:flex;gap:10px 12px;flex-wrap:wrap;margin-top:8px}
+  .legend-points .k{display:flex;align-items:center;gap:6px;border:1px solid #ddd;padding:4px 8px;border-radius:999px;font-size:12px;background:#fff;cursor:pointer}
+  .legend-points .k[data-on="0"]{opacity:.35}
+  .sq{width:12px;height:12px;border:1px solid #111;display:inline-block;border-radius:3px}
+  .filter-list label{display:flex;align-items:center;gap:6px;font-size:13px;margin:2px 0;cursor:pointer}
+
+  #rutaResumen{padding:10px 14px;border-bottom:1px solid #eee;background:#fafafa}
+  #rutaLista{overflow:auto;flex:1;padding:8px 0;background:#fff}
+  .step{padding:8px 14px;border-bottom:1px dashed #eee}
+  .step small{display:block;color:#666}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .legend .k{display:flex;align-items:center;gap:6px;border:1px solid #ddd;padding:4px 8px;border-radius:999px;font-size:12px;background:#fff}
+  .sw{width:18px;height:3px;display:inline-block}
+  .k-autovia .sw{background:#1f6feb}
+  .k-carretera .sw{background:#f59e0b}
+  .k-camino .sw{background:#16a34a}
+
+  .lbl{background:transparent;border:none;box-shadow:none;color:#111;font-size:12px;padding:0;margin:0}
+  .lbl.gray{color:#555}
+  .badge{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:6px 10px;border-radius:8px;opacity:.9;z-index:500}
+
+  .pin-origin { filter: drop-shadow(0 0 2px #0ea5e9); }
+  .pin-dest   { filter: drop-shadow(0 0 2px #ef4444); }
+
+  .blink { animation: blink 1s infinite; }
+  @keyframes blink {
+    0%,50% { opacity: 1; }
+    50.01%,100% { opacity: .25; }
+  }
+
+  /* Ruta clara y fina (mitad aprox.) */
+  .route-line { stroke-width:3px !important; }
+
+  /* Atenuar SOLO mapa base */
+  .map-dim .leaflet-tile-pane {
+    opacity:.35 !important;
+    filter:grayscale(95%) brightness(65%);
+    transition: opacity .3s ease, filter .3s ease;
+  }
+
+  /* Barra de impresión */
+  #printTitleBar{display:none;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #ddd;background:#fff;position:sticky;top:0;z-index:600;font-size:14px}
+  #printTitle{font-weight:700}
+  #printMeta{font-size:12px;color:#555}
+  #btnPrint{display:inline-block}
+
+  .a7-badge{position:absolute;top:8px;right:8px;background:#1f6feb;color:#fff;padding:4px 8px;border-radius:6px;font-size:12px;z-index:450;opacity:.9}
+
+  .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #codPartida{width:160px;padding:6px 8px;border:1px solid #ddd;border-radius:8px}
+
+  /* Logo + Etiqueta de Obra */
+  #topCenterBar{
+    position:absolute;left:50%;top:10px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:12px;z-index:700;background:rgba(255,255,255,.85);
+    padding:8px 10px;border-radius:12px;border:1px solid #e5e7eb;backdrop-filter:saturate(1.2) blur(4px);
+  }
+  #logoPreview{height:32px;max-width:160px;object-fit:contain;display:none}
+  #obraName{
+    min-width:260px;max-width:480px;padding:6px 10px;border-radius:999px;border:1px solid #0ea5e9;
+    background:#2dd4bf;color:#fff;font-weight:700;letter-spacing:.2px
+  }
+  #obraName::placeholder{color:rgba(255,255,255,.85)}
+
+  @media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    html,body{height:auto}
+    body * { visibility:hidden; }
+    #app, #app * , #topCenterBar, #printTitleBar, #printTitleBar * { visibility:visible; }
+    body.print #printTitleBar { display:flex !important; }
+    #app{ grid-template-columns:320px 1fr 360px !important; height:auto !important; transform-origin: center top; }
+    #map{ height: 170mm !important; border-left:1px solid #000;border-right:1px solid #000 }
+    #panelIzq, #panelRuta { border-color:#000 }
+    .k-autovia .sw,.k-carretera .sw,.k-camino .sw{ border:1px solid #000 }
+    .step{ border-bottom:1px solid #bbb }
+    .badge{ display:none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panelIzq">
+    <header>
+      <h1>Marcas (KML/KMZ)</h1>
+      <input id="search" type="search" placeholder="Filtrar por nº / actuación…">
+      <div class="inline" style="margin-top:8px">
+        <label for="codPartida" style="font-size:12px;color:#555">Código de partida:</label>
+        <input id="codPartida" type="text" placeholder="p.ej. 03.02.01">
+      </div>
+
+      <div class="mode">
+        <button id="modeOrigin">Seleccionar ORIGEN</button>
+        <button id="modeDest" class="on">Seleccionar DESTINO</button>
+      </div>
+
+      <div id="actions">
+        <label id="fileBtn" for="file">📂 Importar</label>
+        <input id="file" type="file" accept=".kml,.kmz" multiple style="display:none">
+        <button id="routesFromA7" title="Rutas desde A-7 a todas las actuaciones visibles">⚑ Rutas A-7 (todas)</button>
+        <button id="routeA7Selected" title="Ruta desde A-7 a la selección">➡️ A-7 → selección</button>
+        <button id="useGeoloc" title="Usar mi posición">📍 Mi pos.</button>
+        <button id="swapBtn" title="Invertir origen↔destino">↔️</button>
+        <button id="clearOrigin" title="Quitar origen">🧹 Origen</button>
+        <button id="clearDest" title="Quitar destino">❌ Destino</button>
+        <button id="btnPrint" title="Imprimir">🖨️</button>
+        <button id="clearAll" title="Reiniciar">♻️</button>
+        <label class="inline" style="gap:6px;align-items:center">
+          <input id="dimToggle" type="checkbox" checked>
+          Oscurecer mapa
+        </label>
+      </div>
+
+      <div id="drop" class="drop">Arrastra aquí .kml / .kmz (varios)</div>
+
+      <div class="panel-block">
+        <b>Archivos</b>
+        <div id="fileFilter" class="filter-list" style="margin-top:6px"></div>
+      </div>
+
+      <div class="panel-block">
+        <b>Tipos de actuación</b>
+        <div id="legendTypes" class="legend-points" style="margin-top:8px"></div>
+        <div class="hint">Clic para mostrar/ocultar. Colores sincronizados con chinchetas.</div>
+      </div>
+    </header>
+
+    <div id="list"></div>
+
+    <div id="resumen">
+      <div><span class="chip">Archivos:</span> <span id="fileName">—</span></div>
+      <div><span class="chip">Destino:</span> <span id="selName">—</span></div>
+      <div><span class="chip">Origen:</span> <span id="originStr">—</span></div>
+    </div>
+  </aside>
+
+  <main style="position:relative;">
+    <!-- Barra de impresión -->
+    <div id="printTitleBar">
+      <div id="printTitle">RUTA</div>
+      <div id="printMeta"></div>
+    </div>
+
+    <!-- Logo + Obra -->
+    <div id="topCenterBar">
+      <input id="logoInput" type="file" accept="image/*" title="Cargar logotipo">
+      <img id="logoPreview" alt="Logo">
+      <input id="obraName" type="text" placeholder="Nombre de la obra…">
+    </div>
+
+    <div id="map"></div>
+    <div id="a7Status" class="a7-badge" style="display:none">A-7 cargando…</div>
+  </main>
+
+  <aside id="panelRuta">
+    <header>
+      <h1>Rutas · Distancias y Tiempos</h1>
+      <div class="legend">
+        <div class="k k-autovia"><span class="sw"></span> Autovía/Autopista</div>
+        <div class="k k-carretera"><span class="sw"></span> Carretera</div>
+        <div class="k k-camino"><span class="sw"></span> Camino/Pista</div>
+      </div>
+    </header>
+    <div id="rutaResumen">
+      <div class="metric"><b>Total rutas:</b> <span id="routesCount">0</span></div>
+      <div class="metric">Suma longitudes: <span id="routesSumKm">—</span></div>
+      <div class="metric">Suma tiempos: <span id="routesSumMin">—</span></div>
+    </div>
+    <div id="rutaLista"></div>
+  </aside>
+</div>
+
+<!-- Etiqueta inferior -->
+<div class="badge">PLAN DE RUTAS Y ACCESOS A OBRA</div>
+
+<script>
+/* ===== Config & Utils ===== */
+const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving/';
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const INITIAL_CENTER = [37.238, -1.825];
+const INITIAL_ZOOM = 11;
+
+const routePalette = ['#2563eb','#16a34a','#f59e0b','#ef4444','#8b5cf6','#22c55e','#f97316','#0ea5e9','#a855f7','#84cc16','#ea580c','#eab308'];
+let routeColorIdx = 0;
+const nextRouteColor = () => routePalette[(routeColorIdx++) % routePalette.length];
+
+const ACTION_TYPES = {
+  '3' : { name:'Reparación de socavones junto a estribos', color:'#9ca3af' },
+  '8' : { name:'Reparación de socavones junto ODTs',        color:'#60a5fa' },
+  '16': { name:'Desbroce de plataforma',                    color:'#22c55e' },
+  '18': { name:'Reparación de grietas en la plataforma',    color:'#facc15' },
+  '21': { name:'Reparación de talud en desmonte',           color:'#ef4444' },
+  '22': { name:'Reparación de talud en terraplén',          color:'#84cc16' },
+  '23': { name:'Limpieza de cuneta aterrada',               color:'#f97316' },
+  '26': { name:'Limpieza de escolleras en emboquille',      color:'#3b82f6' },
+  '31': { name:'Desbroce/reparación camino de servicio',    color:'#10b981' }
+};
+const DEFAULT_NUMERIC_COLOR = '#ef4444';
+const NON_NUMERIC_STYLE = { radius:6, color:'#374151', fillColor:'#9ca3af', fillOpacity:1, weight:1 };
+
+const fmt = n => (n!==null && isFinite(n)) ? new Intl.NumberFormat('es-ES',{maximumFractionDigits:2}).format(n) : '—';
+const toMin = s => Math.round((s||0)/60);
+const coordStr = (ll) => `${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`;
+const todayStr = ()=>{ const d=new Date(),p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`; };
+function parseNumericKey(raw){
+  if (!raw) return null;
+  let s = String(raw).trim().replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  return String(Math.trunc(parseFloat(s)));
+}
+
+/* ===== Mapa ===== */
+const map = L.map('map').setView(INITIAL_CENTER, INITIAL_ZOOM);
+const basePositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '© CartoDB' }).addTo(map);
+
+/* ===== Estado ===== */
+let marcas = [];
+let filesData = [];
+let fileLoadedNames = new Set();
+let typesPresentGlobal = new Set();
+let typesState = {};
+let dest = null;
+let origin = null;
+let originMarker = null;
+let routeLayers = [];
+let multiRouteLayers = [];
+let a7Layer = null;
+let a7Junctions = [];
+let a7Milestones = [];
+let selectMode = 'dest';
+
+/* ===== DOM ===== */
+const listEl = document.getElementById('list');
+const searchEl = document.getElementById('search');
+const selNameEl = document.getElementById('selName');
+const originStrEl = document.getElementById('originStr');
+const fileNameEl = document.getElementById('fileName');
+const fileFilterEl = document.getElementById('fileFilter');
+const legendTypesEl = document.getElementById('legendTypes');
+const rutaListaEl = document.getElementById('rutaLista');
+const routesCountEl = document.getElementById('routesCount');
+const routesSumKmEl = document.getElementById('routesSumKm');
+const routesSumMinEl = document.getElementById('routesSumMin');
+const a7Status = document.getElementById('a7Status');
+const btnPrint = document.getElementById('btnPrint');
+const printTitleEl = document.getElementById('printTitle');
+const printMetaEl = document.getElementById('printMeta');
+const codPartidaEl = document.getElementById('codPartida');
+
+/* ===== Modo selección ===== */
+const modeOriginBtn = document.getElementById('modeOrigin');
+const modeDestBtn = document.getElementById('modeDest');
+function setMode(m){
+  selectMode = m;
+  modeOriginBtn.classList.toggle('on', m==='origin');
+  modeDestBtn.classList.toggle('on', m==='dest');
+}
+modeOriginBtn.addEventListener('click', ()=> setMode('origin'));
+modeDestBtn.addEventListener('click', ()=> setMode('dest'));
+
+/* ===== UI básica ===== */
+document.getElementById('swapBtn').addEventListener('click', ()=>{
+  if (!origin || !dest) return;
+  const oldOrigin = origin;
+  setOrigin(dest.latlng, {fly:true});
+  runRoute({ latlng: oldOrigin });
+  setMode(selectMode === 'dest' ? 'origin' : 'dest');
+});
+
+document.getElementById('clearOrigin').addEventListener('click', ()=>{
+  if (originMarker){ map.removeLayer(originMarker); originMarker=null; }
+  origin = null; originStrEl.textContent = '—';
+  clearSingleRoute(); clearMultiRoutes();
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('pin-origin'));
+  document.getElementById('map').classList.remove('map-dim');
+});
+
+document.getElementById('dimToggle')?.addEventListener('change', ()=>{
+  const dim = document.getElementById('dimToggle').checked;
+  document.getElementById('map').classList.toggle('map-dim', dim && (routeLayers.length || multiRouteLayers.length));
+});
+
+document.getElementById('clearDest').addEventListener('click', ()=> clearDestOnly());
+function clearDestOnly(){
+  // limpia parpadeo y marca de destino
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('pin-dest','blink'));
+  document.querySelectorAll('.item.active').forEach(el=> el.classList.remove('active'));
+  dest = null;
+  selNameEl.textContent = '—';
+  clearSingleRoute();
+  document.getElementById('map').classList.remove('map-dim');
+  renderList();
+}
+
+function fitCurrentRouteForPrint(){
+  let grp = null;
+  if (multiRouteLayers.length){ grp = L.featureGroup(multiRouteLayers); }
+  else if (routeLayers.length){ grp = L.featureGroup(routeLayers); }
+  else {
+    const layers = [];
+    if (originMarker) layers.push(originMarker);
+    if (dest && dest.latlng){ layers.push(L.marker(dest.latlng)); }
+    if (!layers.length && marcas.length){ marcas.forEach(m=> layers.push(m.marker)); }
+    if (layers.length) grp = L.featureGroup(layers);
+  }
+  if (grp){ try { map.fitBounds(grp.getBounds().pad(0.25)); } catch(e){} }
+}
+
+btnPrint.addEventListener('click', ()=>{
+  const title = dest && dest.numKey ? `RUTA ACTUACIÓN [${dest.numKey}]` :
+                (multiRouteLayers.length ? 'RUTAS A-7 (todas)' : 'RUTA');
+  const sub   = dest && dest.typeInfo ? ` – ${dest.typeInfo.name}` : '';
+  printTitleEl.textContent = title + sub;
+
+  const sumTxt = multiRouteLayers.length ? routesSumKmEl.textContent : '—';
+  const sumTimeTxt = multiRouteLayers.length ? routesSumMinEl.textContent : '—';
+  const files = Array.from(fileLoadedNames).join(', ') || '—';
+  const cod = codPartidaEl.value ? ` · Código de partida: ${codPartidaEl.value}` : '';
+  printMetaEl.textContent = `Archivos: ${files} · Suma long.: ${sumTxt} · Suma tiempo: ${sumTimeTxt} · Fecha: ${todayStr()}${cod}`;
+
+  document.body.classList.add('print');
+  setTimeout(()=>{ map.invalidateSize(); fitCurrentRouteForPrint(); setTimeout(()=>{ map.invalidateSize(); window.print(); }, 80); }, 60);
+});
+window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print'); setTimeout(()=> map.invalidateSize(), 60); });
+
+document.getElementById('useGeoloc').addEventListener('click', ()=>{
+  if (!navigator.geolocation) return alert('Geolocalización no disponible.');
+  navigator.geolocation.getCurrentPosition(
+    pos=> setOrigin(L.latLng(pos.coords.latitude, pos.coords.longitude), {fly:true}),
+    _=> alert('No se pudo obtener la geolocalización.')
+  );
+});
+
+/* ===== Logo + Obra ===== */
+const logoInput = document.getElementById('logoInput');
+const logoPreview = document.getElementById('logoPreview');
+logoInput.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0]; if(!f) return;
+  const url = URL.createObjectURL(f);
+  logoPreview.src = url;
+  logoPreview.style.display = 'block';
+});
+
+/* ===== Importación KML/KMZ ===== */
+const fileEl = document.getElementById('file');
+document.getElementById('fileBtn').addEventListener('click', ()=> fileEl.click());
+fileEl.addEventListener('change', async (e)=>{ if (e.target.files?.length) { await handleFiles(e.target.files); fileEl.value=''; } });
+
+const dropEl = document.getElementById('drop');
+['dragenter','dragover'].forEach(ev=> dropEl.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dropEl.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev=> dropEl.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dropEl.classList.remove('drag'); }));
+dropEl.addEventListener('drop', async e=>{ const fs=e.dataTransfer.files; if (fs?.length) await handleFiles(fs); });
+
+async function handleFiles(fileList){
+  for (const file of fileList){
+    try{
+      const ext = file.name.toLowerCase().split('.').pop();
+      let kmlText = '';
+      if (ext === 'kmz') {
+        const buf = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buf);
+        const kmlEntry = Object.values(zip.files).find(z=>z.name.toLowerCase().endsWith('.kml'));
+        if (!kmlEntry) throw new Error('KMZ sin KML interno.');
+        kmlText = await kmlEntry.async('text');
+      } else if (ext === 'kml') {
+        kmlText = await file.text();
+      } else { throw new Error('Formato no soportado'); }
+
+      const dom = new DOMParser().parseFromString(kmlText, 'text/xml');
+      const gj = toGeoJSON.kml(dom);
+      await addFileAsLayer(gj, file.name);
+      fileLoadedNames.add(file.name);
+    } catch(err){ console.error(err); alert(`No se pudo importar ${file.name}: ${err.message}`); }
+  }
+  fileNameEl.textContent = Array.from(fileLoadedNames).join(', ');
+  fitAll();
+  renderFileFilter();
+  renderTypesLegend();
+  renderList();
+}
+
+/* ===== Carga robusta ===== */
+async function addFileAsLayer(geojson, fileName){
+  function flattenFeatures(collection){
+    const out = [];
+    (collection.features || []).forEach(f=>{
+      if (!f.geometry) return;
+      const g = f.geometry;
+      if (g.type === 'GeometryCollection') {
+        (g.geometries || []).forEach(h=> out.push({ type:'Feature', properties:{...f.properties}, geometry:h }));
+      } else if (g.type === 'MultiPoint') {
+        g.coordinates.forEach(c=> out.push({ type:'Feature', properties:{...f.properties}, geometry:{type:'Point', coordinates:c} }));
+      } else if (g.type === 'MultiLineString') {
+        g.coordinates.forEach(c=> out.push({ type:'Feature', properties:{...f.properties}, geometry:{type:'LineString', coordinates:c} }));
+      } else if (g.type === 'MultiPolygon') {
+        g.coordinates.forEach(c=> out.push({ type:'Feature', properties:{...f.properties}, geometry:{type:'Polygon', coordinates:c} }));
+      } else {
+        out.push(f);
+      }
+    });
+    return out;
+  }
+
+  const feats = flattenFeatures(geojson);
+  const linesPolys = [];
+  const newRefs = [];
+
+  feats.forEach((f,i)=>{
+    const g = f.geometry;
+    const props = f.properties || {};
+    const rawName = props.name || props.Name || props.title || `Marca ${i+1}`;
+    const name = String(rawName).replace(/<!\[CDATA\[|\]\]>/g,'').trim();
+    if (!g) return;
+
+    if (g.type === 'Point'){
+      const [lng, lat] = g.coordinates;
+      const numKey = parseNumericKey(name);
+      const isNumeric = Boolean(numKey);
+      const typeInfo = (numKey && ACTION_TYPES[numKey]) ? ACTION_TYPES[numKey] : null;
+
+      const color = typeInfo?.color || (isNumeric ? DEFAULT_NUMERIC_COLOR : NON_NUMERIC_STYLE.fillColor);
+      const cm = isNumeric
+        ? L.circleMarker([lat,lng], { radius:6, color:'#111', fillColor:color, fillOpacity:1, weight:1 })
+        : L.circleMarker([lat,lng], { ...NON_NUMERIC_STYLE });
+      cm.addTo(map);
+
+      const label = (typeInfo ? `[${numKey}] ${typeInfo.name}` : name);
+      cm.bindTooltip(label, { permanent:true, direction:'top', offset:[0,-6], className:'lbl' + (typeInfo? '' : ' gray'), interactive:false });
+
+      const rec = { id:`${fileName}::pt-${i+1}`, fileName, name, latlng: cm.getLatLng(), marker: cm, isNumeric, numKey, typeInfo, hiddenByType:false };
+      cm.on('click', ()=>{
+        selectCardAndBlink(rec);
+        if (selectMode==='dest') setDest(rec, {fly:true});
+        else setOrigin(rec.latlng, {fly:true});
+      });
+      cm.on('contextmenu', e=>{ L.DomEvent.preventDefault(e); setOrigin(rec.latlng, {fly:true}); });
+
+      marcas.push(rec); newRefs.push(rec);
+      if (typeInfo) { typesPresentGlobal.add(numKey); if (!(numKey in typesState)) typesState[numKey]=true; }
+    }
+    else if (g.type === 'LineString' || g.type === 'Polygon'){
+      linesPolys.push(f);
+    }
+  });
+
+  let overlayLayer=null;
+  if (linesPolys.length){
+    overlayLayer = L.geoJSON({type:'FeatureCollection', features:linesPolys}, {
+      style:{ color:'#155EEF', weight:2, opacity:0.6, fillOpacity:0.08 }
+    }).addTo(map);
+  }
+  filesData.push({ fileName, overlayLayer, marcas:newRefs });
+}
+
+function fitAll(){
+  const layers=[]; filesData.forEach(fd=>{ if (fd.overlayLayer) layers.push(fd.overlayLayer); });
+  marcas.forEach(m=>{ if (!m.hiddenByType) layers.push(m.marker); });
+  if (!layers.length){ map.setView(INITIAL_CENTER, INITIAL_ZOOM); return; }
+  try{ const grp=L.featureGroup(layers); map.fitBounds(grp.getBounds().pad(0.2)); } catch(e){}
+}
+
+/* ===== Filtros ===== */
+function renderFileFilter(){
+  if (!filesData.length){ fileFilterEl.innerHTML = '<span style="color:#666">—</span>'; return; }
+  fileFilterEl.innerHTML = filesData.map(f=>`
+    <label><input type="checkbox" data-file="${f.fileName}" checked> ${f.fileName}</label>
+  `).join('');
+  fileFilterEl.querySelectorAll('input[type=checkbox]').forEach(ch=>{
+    ch.addEventListener('change', ()=>{
+      const f = filesData.find(x=> x.fileName === ch.dataset.file);
+      if (!f) return;
+      if (ch.checked){
+        if (f.overlayLayer) f.overlayLayer.addTo(map);
+        f.marcas.forEach(m=> { if (!m.hiddenByType) m.marker.addTo(map); });
+      } else {
+        if (f.overlayLayer) map.removeLayer(f.overlayLayer);
+        f.marcas.forEach(m=>{
+          if (dest && dest.id===m.id) { clearDestOnly(); }
+          map.removeLayer(m.marker);
+        });
+      }
+      renderList();
+    });
+  });
+}
+
+function renderTypesLegend(){
+  const arr = Array.from(typesPresentGlobal).sort((a,b)=> Number(a)-Number(b));
+  legendTypesEl.innerHTML = arr.length
+    ? arr.map(k=>`<div class="k" data-code="${k}" data-on="${typesState[k]!==false?1:0}"><span class="sq" style="background:${(ACTION_TYPES[k]||{}).color||'#999'}"></span> [${k}] ${(ACTION_TYPES[k]||{}).name||('Tipo '+k)}</div>`).join('')
+    : '<div class="k"><span class="sq" style="background:#9ca3af"></span> Sin tipos detectados</div>';
+
+  legendTypesEl.querySelectorAll('.k').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const code = el.getAttribute('data-code');
+      const on = el.getAttribute('data-on')==='1';
+      typesState[code] = !on;
+      el.setAttribute('data-on', on?'0':'1');
+      marcas.forEach(m=>{
+        if (m.isNumeric && m.numKey===code){
+          m.hiddenByType = on;
+          if (on) { map.removeLayer(m.marker); }
+          else { m.marker.addTo(map); }
+        }
+      });
+      if (dest && dest.numKey===code && on){ clearDestOnly(); }
+      renderList();
+    });
+  });
+}
+
+/* ===== Lista ===== */
+function visibleIdsByFile(){
+  const set = new Set();
+  filesData.forEach(fd=>{
+    const chk = fileFilterEl.querySelector(`input[data-file="${fd.fileName}"]`);
+    const on = chk ? chk.checked : true;
+    if (on) fd.marcas.forEach(m=> set.add(m.id));
+  });
+  return set;
+}
+function renderList(){
+  const q = (searchEl.value||'').trim().toLowerCase();
+  const visible = visibleIdsByFile();
+  const rows = marcas
+    .filter(m=> m.isNumeric && visible.has(m.id) && !m.hiddenByType)
+    .filter(m=> (m.numKey||'').includes(q) || (m.typeInfo? m.typeInfo.name.toLowerCase(): '').includes(q))
+    .sort((a,b)=> Number(a.numKey)-Number(b.numKey))
+    .map(m=>{
+      const label = m.typeInfo ? `[${m.numKey}] ${m.typeInfo.name}` : m.name;
+      const active = (dest && dest.id===m.id) ? 'active' : '';
+      return `<div class="item ${active}" data-id="${m.id}">
+        <div>
+          <div><b>${label}</b></div>
+          <div class="subtitle">${m.latlng.lat.toFixed(6)}, ${m.latlng.lng.toFixed(6)} · <i>${m.fileName}</i></div>
+        </div>
+        <div class="mini-actions">
+          <button data-role="origin" title="Usar como ORIGEN">O</button>
+          <button data-role="dest" title="Usar como DESTINO">D</button>
+        </div>
+      </div>`;
+    }).join('');
+  listEl.innerHTML = rows || `<div class="item">No hay marcas numéricas visibles</div>`;
+
+  listEl.querySelectorAll('.item[data-id]').forEach(el=>{
+    const id = el.getAttribute('data-id');
+    const rec = marcas.find(x=>x.id===id);
+    el.addEventListener('click', (ev)=>{
+      if (ev.target && ev.target.dataset && ev.target.dataset.role) return;
+      selectCardAndBlink(rec);
+      if (selectMode==='dest') setDest(rec, {fly:true});
+      else setOrigin(rec.latlng, {fly:true});
+    });
+    el.querySelectorAll('button[data-role]').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        selectCardAndBlink(rec);
+        if (btn.dataset.role==='origin') { setOrigin(rec.latlng, {fly:true}); setMode('dest'); }
+        else { setDest(rec, {fly:true}); setMode('origin'); }
+      });
+    });
+  });
+}
+searchEl.addEventListener('input', renderList);
+
+function selectCardAndBlink(rec){
+  document.querySelectorAll('.item.active').forEach(el=> el.classList.remove('active'));
+  const card = listEl.querySelector(`.item[data-id="${rec.id}"]`);
+  if (card) card.classList.add('active');
+  // limpiar parpadeo de todas
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('blink'));
+  // aplicar parpadeo a la seleccionada
+  const el = rec.marker.getElement();
+  if (el) el.classList.add('blink');
+}
+
+/* ===== Selección & Origen/Destino ===== */
+function setDest(rec, {fly=false}={}){
+  // quitar flags visuales previos
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('pin-dest'));
+  if (!rec){ clearDestOnly(); return; }
+  dest = rec;
+  selNameEl.textContent = rec.typeInfo ? `[${rec.numKey}] ${rec.typeInfo.name}` : (rec.name||'(destino)');
+  if (fly) map.flyTo(rec.latlng, Math.max(map.getZoom(), 14));
+  rec.marker.getElement()?.classList.add('pin-dest');
+  // asegurar parpadeo en la seleccionada
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('blink'));
+  rec.marker.getElement()?.classList.add('blink');
+  runRoute();
+  renderList();
+}
+
+function setFreeDest(latlng, {fly=false}={}){
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('pin-dest','blink'));
+  dest = { id:'free-dest', name:'Destino (mapa)', latlng, isNumeric:false };
+  selNameEl.textContent = 'Destino (mapa)';
+  clearSingleRoute();
+  if (fly) map.flyTo(latlng, Math.max(map.getZoom(), 14));
+  runRoute();
+}
+
+map.on('click', e=>{
+  if (selectMode==='origin'){
+    setOrigin(e.latlng, {fly:false});
+    setMode('dest');
+  } else {
+    setFreeDest(e.latlng, {fly:false});
+    setMode('origin');
+  }
+});
+
+function setOrigin(latlng, {fly=false}={}){
+  origin = latlng; originStrEl.textContent = coordStr(latlng);
+  if (!originMarker){
+    originMarker = L.marker(latlng, {draggable:true, title:'Origen'}).addTo(map).bindTooltip('Origen',{permanent:false,interactive:false});
+    originMarker.on('dragend', ()=>{ origin = originMarker.getLatLng(); originStrEl.textContent = coordStr(origin); runRoute(); });
+  } else { originMarker.setLatLng(latlng); }
+  // marcar si coincide con alguna chincheta
+  marcas.forEach(m=> m.marker.getElement()?.classList.remove('pin-origin'));
+  const same = marcas.find(m=> m.latlng.equals(latlng));
+  if (same) same.marker.getElement()?.classList.add('pin-origin');
+  if (fly) map.flyTo(latlng, Math.max(map.getZoom(), 14));
+  runRoute();
+}
+
+/* ===== Rutas (simple) ===== */
+function clearSingleRoute(){
+  routeLayers.forEach(l=> map.removeLayer(l));
+  routeLayers=[];
+  rutaListaEl.innerHTML='';
+  document.getElementById('map').classList.remove('map-dim');
+}
+
+async function drawRoutePolyline(geometry, color){
+  const gj = L.geoJSON(geometry, {
+    style:{ color, weight:3, opacity:1, lineJoin:'round', lineCap:'round' }
+  }).addTo(map);
+  // asegurar clase para grosor
+  gj.eachLayer(l=>{
+    if (l instanceof L.Polyline && l._path) l._path.classList.add('route-line');
+  });
+  routeLayers.push(gj);
+  return gj;
+}
+
+async function routeFromTo(orig, destLL, collect=false, colorOverride=null){
+  const coords = `${orig.lng},${orig.lat};${destLL.lng},${destLL.lat}`;
+  const url = `${OSRM_URL}${coords}?overview=full&geometries=geojson&steps=true&alternatives=false`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('OSRM no disponible');
+  const data = await res.json();
+  if (!data.routes?.length) throw new Error('Sin rutas');
+  const route = data.routes[0], leg = route.legs[0];
+  const color = colorOverride || nextRouteColor();
+  const poly = await drawRoutePolyline(route.geometry, color);
+
+  // desglose simple por tipo (aprox por step)
+  let sum = { autovia:0, carretera:0, camino:0 };
+  (leg.steps||[]).forEach(st=>{
+    const ref=(st.ref||'').toUpperCase(), name=(st.name||'').toUpperCase();
+    const isAuto = /^(AP|A)-\d+/.test(ref) || /AUTOPISTA|AUTOV[IÍ]A/.test(name);
+    const isRoad = !isAuto && ( /^(N|C|AL|GR|SE|MA|MU|JA|HU|CO|CA|BA|CR|CU|TE|ZA|LE|BI|PO|GI|LU|TO|VA|CS|HU|TF|GC)-\w+/.test(ref) || /\bCTRA\.?|\bCARRETERA\b/.test(name) );
+    if (isAuto) sum.autovia += st.distance||0;
+    else if (isRoad) sum.carretera += st.distance||0;
+    else sum.camino += st.distance||0;
+  });
+
+  if (collect){
+    multiRouteLayers.push(poly);
+  }
+  return { distance: route.distance, duration: route.duration, breakdown: sum, steps: leg.steps||[], color };
+}
+
+function runRoute(customDest){
+  if (!origin || !(dest || customDest)) { clearSingleRoute(); return; }
+  const d = customDest ? customDest.latlng : dest.latlng;
+  clearMultiRoutes(); clearSingleRoute();
+  routeFromTo(origin, d).then(({distance,duration,breakdown,steps})=>{
+    const totalKm = fmt(distance/1000), totalMin = fmt(toMin(duration));
+    const html = [`
+      <div class="step"><b>Distancia total:</b> ${totalKm} km · <b>Tiempo:</b> ${totalMin} min</div>
+      <div class="step">Autovía/Autopista: ${fmt(breakdown.autovia/1000)} km</div>
+      <div class="step">Carretera: ${fmt(breakdown.carretera/1000)} km</div>
+      <div class="step">Camino/Pista: ${fmt(breakdown.camino/1000)} km</div>
+      <div class="step"><b>Pasos (OSRM)</b></div>
+    `];
+    steps.forEach((st, idx)=>{
+      const dist = fmt(st.distance||0), tmin = fmt(toMin(st.duration||0));
+      const name = st.name || '(sin nombre)'; const ref = st.ref ? ` [${st.ref}]` : '';
+      const inst = st.maneuver?.instruction || '';
+      html.push(`<div class="step"><b>${idx+1}.</b> ${inst}<small>${name}${ref} · ≈ ${dist} m · ≈ ${tmin} min</small></div>`);
+    });
+    rutaListaEl.innerHTML = html.join('');
+    try{ const grp=L.featureGroup(routeLayers); map.fitBounds(grp.getBounds().pad(0.3)); }catch(e){}
+    const dim = document.getElementById('dimToggle')?.checked;
+    document.getElementById('map').classList.toggle('map-dim', !!dim);
+  }).catch(err=>{ console.error(err); alert('No se pudo calcular la ruta.'); });
+}
+
+/* ===== A-7 (Overpass) ===== */
+document.getElementById('routesFromA7').addEventListener('click', async ()=>{
+  const numeric = marcas.filter(m=> m.isNumeric && !m.hiddenByType && visibleIdsByFile().has(m.id));
+  if (!numeric.length) { alert('No hay chinchetas numéricas visibles.'); return; }
+
+  const bb = boundsFromLatLngs(numeric.map(m=>m.latlng)).pad(0.25);
+  if (!a7Layer){ await loadA7(bb); }
+  if (!a7Junctions.length){ alert('No se han encontrado enlaces de la A-7 en la zona.'); return; }
+
+  clearSingleRoute(); clearMultiRoutes();
+  rutaListaEl.innerHTML = '';
+  routesCountEl.textContent = '0'; routesSumKmEl.textContent = '—'; routesSumMinEl.textContent = '—';
+
+  let sumAll = 0, sumTimeAll = 0, count = 0;
+
+  for (const m of numeric){
+    const j = nearestJunction(m.latlng, a7Junctions);
+    if (!j){ appendFail(m,'sin enlace'); continue; }
+
+    try{
+      const {distance, duration, breakdown, color} = await routeFromTo(L.latLng(j.lat, j.lng), m.latlng, true);
+      sumAll += distance; sumTimeAll += duration; count++;
+
+      const tag = m.typeInfo ? `[${m.numKey}] ${m.typeInfo.name}` : `[${m.numKey}]`;
+      const salida = (j.ref ? `Salida ${j.ref}` : 'Salida s/d');
+      const jName = j.name ? ` – ${j.name}` : '';
+      const pkTxt = j.km ? ` · PK aprox. ${fmt(j.km)}` : '';
+      const el = document.createElement('div');
+      el.className='step';
+      el.innerHTML = `<b style="color:${color}">${tag}</b> · ${fmt(distance/1000)} km · ${fmt(toMin(duration))} min
+        <small>${salida}${jName}${pkTxt} · Autovía/Autopista: ${fmt((breakdown.autovia||0)/1000)} · Carretera: ${fmt((breakdown.carretera||0)/1000)} · Camino: ${fmt((breakdown.camino||0)/1000)}</small>`;
+      rutaListaEl.appendChild(el);
+    }catch(err){
+      console.warn('Ruta fallida para', m.name, err);
+      appendFail(m,'sin ruta OSRM');
+    }
+    await delay(120);
+  }
+  routesCountEl.textContent = String(count);
+  routesSumKmEl.textContent = `${fmt(sumAll/1000)} km`;
+  routesSumMinEl.textContent = `${fmt(toMin(sumTimeAll))} min`;
+  try{ const grp=L.featureGroup(multiRouteLayers); map.fitBounds(grp.getBounds().pad(0.25)); }catch(e){}
+  const dim = document.getElementById('dimToggle')?.checked;
+  document.getElementById('map').classList.toggle('map-dim', !!dim);
+
+  function appendFail(m,msg){
+    const el = document.createElement('div'); el.className='step';
+    el.innerHTML = `<b>[${m.numKey||'?'}] ${m.typeInfo?.name||m.name}</b> · <span style="color:#b91c1c">${msg}</span>`;
+    rutaListaEl.appendChild(el);
+  }
+});
+
+document.getElementById('routeA7Selected').addEventListener('click', async ()=>{
+  if (!dest || !dest.latlng){ alert('Selecciona primero una chincheta.'); return; }
+  const bb = boundsFromLatLngs([dest.latlng]).pad(0.25);
+  if (!a7Layer){ await loadA7(bb); }
+  if (!a7Junctions.length){ alert('No se han encontrado enlaces de la A-7 en la zona.'); return; }
+
+  clearSingleRoute(); clearMultiRoutes();
+  rutaListaEl.innerHTML = '';
+  routesCountEl.textContent = '0'; routesSumKmEl.textContent = '—'; routesSumMinEl.textContent = '—';
+
+  const j = nearestJunction(dest.latlng, a7Junctions);
+  if (!j){ rutaListaEl.innerHTML = '<div class="step">Sin enlace A-7 cercano.</div>'; return; }
+
+  try{
+    const {distance, duration, breakdown, color} = await routeFromTo(L.latLng(j.lat, j.lng), dest.latlng, true);
+    routesCountEl.textContent = '1';
+    routesSumKmEl.textContent = `${fmt(distance/1000)} km`;
+    routesSumMinEl.textContent = `${fmt(toMin(duration))} min`;
+    const salida = (j.ref ? `Salida ${j.ref}` : 'Salida s/d');
+    const jName = j.name ? ` – ${j.name}` : '';
+    const pkTxt = j.km ? ` · PK aprox. ${fmt(j.km)}` : '';
+    rutaListaEl.innerHTML = `<div class="step"><b style="color:${color}">A-7 → selección</b> · ${fmt(distance/1000)} km · ${fmt(toMin(duration))} min
+      <small>${salida}${jName}${pkTxt} · Autovía/Autopista: ${fmt((breakdown.autovia||0)/1000)} · Carretera: ${fmt((breakdown.carretera||0)/1000)} · Camino: ${fmt((breakdown.camino||0)/1000)}</small></div>`;
+    try{ const grp=L.featureGroup(multiRouteLayers); map.fitBounds(grp.getBounds().pad(0.25)); }catch(e){}
+    const dim = document.getElementById('dimToggle')?.checked;
+    document.getElementById('map').classList.toggle('map-dim', !!dim);
+  }catch(err){
+    console.error(err);
+    rutaListaEl.innerHTML = '<div class="step" style="color:#b91c1c">No se pudo calcular la ruta.</div>';
+  }
+});
+
+async function loadA7(bb){
+  a7Status.style.display='block'; a7Status.textContent='A-7 cargando…';
+  const south=bb.getSouth(), west=bb.getWest(), north=bb.getNorth(), east=bb.getEast();
+  const q = `
+  [out:json][timeout:25];
+  (
+    way["highway"="motorway"]["ref"~"^A\\-?7$"](${south},${west},${north},${east});
+    way["highway"="motorway"]["name"~"A\\-?7"](${south},${west},${north},${east});
+  )->.a7ways;
+  node["highway"="motorway_junction"](around.a7ways:300)->.juncs;
+  node["highway"="milestone"]["ref"~"^A\\-?7$"](${south},${west},${north},${east});
+  out body; >; out skel qt;`;
+  try{
+    const res = await fetch(OVERPASS_URL, { method:'POST', body:q, headers:{'Content-Type':'text/plain'}});
+    if (!res.ok) throw new Error('Overpass no disponible');
+    const data = await res.json();
+    const built = buildA7FromOverpass(data);
+    if (a7Layer) map.removeLayer(a7Layer);
+    a7Junctions = built.junctions;
+    a7Milestones = built.milestones;
+    a7Layer = built.layer.addTo(map);
+    a7Status.textContent = `A-7: ${a7Junctions.length} enlaces`;
+    setTimeout(()=> a7Status.style.display='none', 1800);
+  }catch(e){
+    console.error(e);
+    a7Status.textContent='A-7 no disponible';
+    setTimeout(()=> a7Status.style.display='none', 1500);
+  }
+}
+
+function buildA7FromOverpass(json){
+  const nodes = new Map();
+  json.elements.filter(el=> el.type==='node').forEach(n=> nodes.set(n.id, {lat:n.lat, lng:n.lon, tags:n.tags||{}}));
+  const ways = json.elements.filter(el=> el.type==='way');
+  const layer = L.featureGroup();
+
+  ways.filter(w=> w.tags && w.tags.highway==='motorway').forEach(w=>{
+    const pts = w.nodes.map(id=> nodes.get(id)).filter(Boolean).map(n=> L.latLng(n.lat,n.lng));
+    if (pts.length>=2){
+      L.polyline(pts, {color:'#1f6feb', weight:4, opacity:0.6, dashArray:'6 6'}).addTo(layer);
+    }
+  });
+
+  const junctions = [];
+  json.elements.filter(el=> el.type==='node' && el.tags && el.tags.highway==='motorway_junction').forEach(n=>{
+    const ref = n.tags.ref || '';
+    const name = n.tags.name || n.tags['name:es'] || n.tags['name:en'] || '';
+    const km = parseFloat(n.tags.kilometre || n.tags.kilometer || n.tags.distance || '');
+    junctions.push({lat:n.lat, lng:n.lon, ref, name, km: isFinite(km)? km : null});
+    L.circleMarker([n.lat,n.lon], {radius:5, color:'#111', fillColor:'#fff', fillOpacity:1, weight:2})
+      .bindTooltip(`Salida ${ref || 's/d'}${name? ' – '+name : ''}`, {direction:'top', permanent:false})
+      .addTo(layer);
+  });
+
+  const milestones = [];
+  json.elements.filter(el=> el.type==='node' && el.tags && el.tags.highway==='milestone').forEach(n=>{
+    const km = parseFloat(n.tags.kilometre || n.tags.kilometer || n.tags.distance || n.tags['km'] || '');
+    if (isFinite(km)) milestones.push({lat:n.lat, lng:n.lon, km});
+  });
+
+  return {junctions, milestones, layer};
+}
+
+/* ===== Util ===== */
+function boundsFromLatLngs(latlngs){ const b = L.latLngBounds(); latlngs.forEach(ll=> b.extend(ll)); return b; }
+function delay(ms){ return new Promise(r=> setTimeout(r, ms)); }
+
+function nearestJunction(targetLL, junctions){
+  if (!junctions.length) return null;
+  let best = null, bestD2 = Infinity;
+  junctions.forEach(j=>{
+    const d2 = (j.lat - targetLL.lat)**2 + (j.lng - targetLL.lng)**2;
+    if (d2 < bestD2){ bestD2 = d2; best = j; }
+  });
+  if (best && a7Milestones.length){
+    let kbest=null, kd2=Infinity;
+    a7Milestones.forEach(k=>{
+      const d2 = (k.lat - best.lat)**2 + (k.lng - best.lng)**2;
+      if (d2<kd2){kd2=d2;kbest=k;}
+    });
+    if (kbest) best = { ...best, km: kbest.km };
+  }
+  return best;
+}
+
+function clearMultiRoutes(){ multiRouteLayers.forEach(l=> map.removeLayer(l)); multiRouteLayers=[]; }
+
+function clearAll(keepNames){
+  marcas.forEach(m=> map.removeLayer(m.marker)); marcas=[];
+  filesData.forEach(fd=>{ if (fd.overlayLayer) map.removeLayer(fd.overlayLayer); }); filesData=[];
+  fileLoadedNames.clear(); typesPresentGlobal.clear(); typesState = {};
+  if (originMarker){ map.removeLayer(originMarker); originMarker=null; }
+  origin=null; originStrEl.textContent='—'; dest=null; selNameEl.textContent='—';
+  clearSingleRoute(); clearMultiRoutes();
+  if (a7Layer){ map.removeLayer(a7Layer); a7Layer=null; a7Junctions=[]; a7Milestones=[]; }
+  legendTypesEl.innerHTML=''; fileFilterEl.innerHTML='';
+  document.querySelectorAll('.item.active').forEach(el=> el.classList.remove('active'));
+  if (!keepNames) fileNameEl.textContent='—';
+  document.getElementById('map').classList.remove('map-dim');
+  map.setView(INITIAL_CENTER, INITIAL_ZOOM);
+}
+document.getElementById('clearAll').addEventListener('click', ()=> clearAll(false));
+</script>
+</body>
+</html>

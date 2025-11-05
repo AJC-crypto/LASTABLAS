@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canteras (C) · Yacimientos (GR) · Rutas a Obra</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous"/>
+<style>
+  *{box-sizing:border-box} html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  #map{width:100%;height:100vh} .leaflet-tile-pane{filter:grayscale(100%)}
+  .toolbar{position:absolute;left:50%;transform:translateX(-50%);top:8px;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:10px;padding:8px 10px;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:1000}
+  .toolbar input[type='number'],.toolbar input[type='text']{width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:6px}
+  .toolbar button,label.btn{padding:6px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer}
+  .toolbar button:hover,.toolbar label.btn:hover{background:#f3f4f6} .small{font-size:11px;color:#555} input[type="file"]{display:none}
+  .lbl{position:absolute;background:#fff;border:1px solid rgba(0,0,0,.25);border-radius:6px;padding:2px 6px;font-size:12px;color:#111;box-shadow:0 2px 6px rgba(0,0,0,.25);white-space:nowrap;cursor:pointer}
+  .label-pane{z-index:600}
+  .legend{position:absolute;right:10px;bottom:10px;background:rgba(255,255,255,.96);border:1px solid #ddd;border-radius:12px;padding:10px;font-size:12px;min-width:260px;max-width:420px;z-index:1000}
+  .legend h4{margin:0 0 8px 0;font-size:13px} .legend .sheet{border-top:1px solid #eee;padding-top:8px;margin-top:8px}
+  .legend .row{display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap} .legend .swatch{width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.2)}
+  .legend .sheet-title{display:flex;align-items:center;gap:8px;font-weight:600} .legend .actions{margin-left:auto;display:flex;gap:6px}
+  .legend .actions button{padding:2px 6px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:11px}
+  .status{position:absolute;right:10px;top:10px;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:10px;padding:8px 10px;font-size:12px;z-index:1000;max-width:520px;white-space:pre-wrap}
+  .obra-pin{position:relative;width:38px;height:38px;transform:translate(-50%,-100%);pointer-events:auto}
+  .obra-pin .pin{position:absolute;left:0;top:0;width:38px;height:38px;animation:breathe 1.6s ease-in-out infinite;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
+  .obra-pin .halo{position:absolute;left:50%;top:50%;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-20%);background:rgba(211,47,47,.25);animation:pulse 1.6s ease-out infinite}
+  @keyframes breathe{0%{transform:scale(.92);opacity:.95}50%{transform:scale(1.2);opacity:1}100%{transform:scale(.92);opacity:.95}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(211,47,47,.45);opacity:.9}70%{box-shadow:0 0 0 22px rgba(211,47,47,0);opacity:.15}100%{box-shadow:0 0 0 0 rgba(211,47,47,0);opacity:.9}}
+  .titlebar{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:1100;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:12px;padding:8px 12px}
+  .titlebar img{max-height:48px;max-width:180px;object-fit:contain;border-radius:6px;border:1px solid #eee}
+  .titlebar .title{min-width:240px;font-weight:700;font-size:16px;outline:none;padding:4px 8px;border-radius:6px;border:1px dashed transparent}
+  .corner-tag{position:absolute;left:10px;bottom:10px;z-index:1100;background:rgba(255,255,255,.95);border:1px solid #ddd;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;letter-spacing:.3px}
+  .route-hint{position:absolute;left:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.96);border:1px solid #ddd;border-radius:10px;padding:8px 10px;font-size:12px;z-index:1000;display:none}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="titlebar">
+  <img id="logoImg" alt="Logo" style="display:none"/>
+  <div id="mapTitle" class="title" contenteditable="true" spellcheck="false">CANTERAS (C) · YACIMIENTOS (GR)</div>
+</div>
+
+<div class="toolbar">
+  <button id="btnPick">📍 Fijar obra por click</button>
+  <label>lat,lon: <input id="inpLatLon" type="text" placeholder="37.3891,-5.9845"></label>
+  <button id="btnSetLatLon">Aplicar</button>
+
+  <label for="fileXLSX" class="btn">📄 Cargar Excel (PLANTAS Y CANTERAS.xlsx)</label>
+  <input id="fileXLSX" type="file" accept=".xlsx,.xls,.xlsm"/>
+
+  <label for="filePDF" class="btn">📑 Cargar PDFs (opcional)</label>
+  <input id="filePDF" type="file" accept="application/pdf" multiple/>
+
+  <label for="fileLogo" class="btn">🖼️ Logo</label>
+  <input id="fileLogo" type="file" accept="image/jpeg,image/png"/>
+
+  <!-- NUEVO: Cargar KML/KMZ múltiples -->
+  <label for="fileKML" class="btn">🗺️ Cargar KML/KMZ (múltiples)</label>
+  <input id="fileKML" type="file" accept=".kml,.kmz" multiple/>
+
+  <button id="btnFit">Zoom a todo</button>
+  <label>Radio (km): <input id="km" type="number" min="1" step="1" value=""></label>
+  <button id="btnApplyKm">Aplicar</button>
+  <button id="btnClearKm">Quitar radio</button>
+  <label><input id="toggleLabels" type="checkbox" checked> Etiquetas permanentes</label>
+  <span class="small">Destino: <b id="destinoText">La Pañoleta, Sevilla</b></span>
+</div>
+
+<div class="status" id="statusBox">Cargando librerías…</div>
+
+<div class="legend" id="legend">
+  <h4>Capas — Canteras (C) · Yacimientos (GR)</h4>
+  <div id="legendBody">
+    <div class="hint">Usa “CANTERAS Y YACIMIENTOS”. Se derivan C/GR de los textos y se convierten UTM→WGS84 si hay “X: …, Y: …”.</div>
+  </div>
+
+  <!-- NUEVO: Sección de capas KML -->
+  <div class="sheet" id="kmlSheet" style="display:none">
+    <div class="sheet-title">
+      <span>Capas KML</span>
+      <div class="actions" style="margin-left:auto">
+        <button id="kmlAll">Todos</button>
+        <button id="kmlNone">Ninguno</button>
+      </div>
+    </div>
+    <div id="kmlList"></div>
+  </div>
+</div>
+
+<div class="corner-tag">CANTERAS Y YACIMIENTOS GRANULARES · RUTAS A OBRA</div>
+<div id="routeHint" class="route-hint">Modo ruta: solo la cantera seleccionada. <button id="btnShowAll" style="margin-left:8px">Mostrar todas</button></div>
+
+<script>
+(function(){
+  function loadScript(src, onload){ const s=document.createElement('script'); s.src=src; s.crossOrigin='anonymous'; s.onload=onload||null; document.head.appendChild(s); }
+  loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+  loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+  loadScript('https://cdn.jsdelivr.net/npm/proj4@2.9.2/dist/proj4.js');
+  // NUEVO: toGeoJSON y JSZip para KML/KMZ
+  loadScript('https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js');
+  loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+})();
+</script>
+
+<script>
+const statusBox=document.getElementById('statusBox'); function setStatus(m){ statusBox.textContent=m; }
+function waitFor(test,ms=12000){ return new Promise((res,rej)=>{const t0=Date.now(),h=setInterval(()=>{ if(test()){clearInterval(h);res(true);} else if(Date.now()-t0>ms){clearInterval(h);rej(new Error('timeout'));}},40);});}
+
+(async function boot(){
+  try{ await waitFor(()=>window.L&&window.XLSX&&window.proj4&&window.toGeoJSON&&window.JSZip,15000);} catch{ setStatus('No se pudo cargar Leaflet/XLSX/proj4/toGeoJSON/JSZip.'); return;}
+
+  const map=L.map('map',{zoomControl:true}).setView([40.2,-3.7],6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  const labelPane = map.createPane('labels'); labelPane.classList.add('label-pane');
+  const obraPane  = map.createPane('obraPane');  obraPane.style.zIndex=1200;
+  const routePane = map.createPane('routePane'); routePane.style.zIndex=800;
+  const kmlPane   = map.createPane('kmlPane');   kmlPane.style.zIndex=500; // debajo de ruta y marcadores
+
+  const COLORS={C:'#2e7d32', GR:'#6a1b9a'};
+  function markerIcon(color){ const svg=encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='"+color+"' d='M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z'/></svg>");
+    return L.icon({iconUrl:'data:image/svg+xml;charset=UTF-8,'+svg,iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});}
+
+  function createObraDivIcon(){
+    const html=`<div class="obra-pin"><div class="halo"></div>
+      <svg class="pin" viewBox="0 0 24 24" width="38" height="38" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#d32f2f" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></div>`;
+    return L.divIcon({className:'',html,iconSize:[0,0],iconAnchor:[0,0],popupAnchor:[0,-28]});
+  }
+
+  function slug(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+  function havKm(a,b,c,d){ const R=6371,toRad=t=>t*Math.PI/180,dLat=toRad(c-a),dLon=toRad(d-b);
+    const x=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+  function fmtKm(k){ return k>=100?`${k.toFixed(0)} km`:`${k.toFixed(1)} km`; }
+
+  // Origen/obra
+  let ORIGIN={lat:37.3891,lng:-5.9845,name:'La Pañoleta, Sevilla'};
+  const destinoText=document.getElementById('destinoText'); destinoText.textContent=ORIGIN.name;
+  let obraMarker=L.marker([ORIGIN.lat,ORIGIN.lng],{icon:createObraDivIcon(),draggable:true,pane:'obraPane'}).addTo(map)
+    .bindPopup(`<b>Obra</b><br>${ORIGIN.name}`);
+  obraMarker.on('dragend',()=>{ const p=obraMarker.getLatLng(); setOrigin(p.lat,p.lng); });
+  function setOrigin(lat,lng,name){ ORIGIN.lat=lat; ORIGIN.lng=lng; ORIGIN.name=name||`${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    destinoText.textContent=ORIGIN.name; obraMarker.setLatLng([lat,lng]).setPopupContent(`<b>Obra</b><br>${ORIGIN.name}`); applyFilters(); }
+
+  // UTM helpers
+  function utmToLatLng(e,n,zone){ try{ const p=proj4('+proj=utm +zone='+zone+' +datum=WGS84 +units=m +no_defs','WGS84',[e,n]); return {lng:p[0],lat:p[1]}; }catch(_){ return null; } }
+  function parseUTM(s){
+    const m=s.match(/X:\s*([0-9]{5,7})\s*,?\s*Y:\s*([0-9]{6,7})/i) || s.match(/E[:=]?\s*([0-9]{5,7}).*N[:=]?\s*([0-9]{6,7})/i);
+    if(!m) return null; const E=parseFloat(m[1]), N=parseFloat(m[2]); if(!isFinite(E)||!isFinite(N)) return null;
+    const z=30; const ll=utmToLatLng(E,N,z); return ll?{...ll,zone:z}:{lat:null,lng:null};
+  }
+  function parseLatLonInline(s){
+    const m=s.match(/(-?\d+(\.\d+)?)\s*[,;]\s*(-?\d+(\.\d+)?)/); if(!m) return null;
+    const lat=parseFloat(m[1]), lng=parseFloat(m[3]);
+    if(Math.abs(lat)<=90 && Math.abs(lng)<=180) return {lat,lng}; return null;
+  }
+
+  // PDFs opcionales (asociación por nombre simple)
+  let pdfFiles=[]; function indexPdfs(list){ pdfFiles=[]; for(const f of list){ pdfFiles.push({name:f.name,url:URL.createObjectURL(f),slug:slug(f.name)}); } }
+  function pickPdfByName(name){ const s=slug(name); return pdfFiles.find(p=>s.includes(slug(p.name.split('.')[0])))||null; }
+
+  // Leyenda / filtros (C/GR)
+  let layers=[]; let bounds=[]; let filters={'C/GR':{__checked:true,groups:{C:true,GR:true}}};
+  function renderLegend(){
+    const legend=document.getElementById('legendBody');
+    legend.innerHTML=`
+      <div class="sheet">
+        <div class="sheet-title">
+          <span class="swatch" style="background:${COLORS.C}"></span>
+          <label style="margin-right:10px"><input type="checkbox" id="chkC" ${filters['C/GR'].groups.C?'checked':''}> Cantera (C)</label>
+          <span class="swatch" style="background:${COLORS.GR}"></span>
+          <label><input type="checkbox" id="chkGR" ${filters['C/GR'].groups.GR?'checked':''}> Yacimiento (GR)</label>
+          <div class="actions" style="margin-left:auto">
+            <button id="all">Todos</button><button id="none">Ninguno</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('chkC').onchange=(e)=>{filters['C/GR'].groups.C=e.target.checked; applyFilters();};
+    document.getElementById('chkGR').onchange=(e)=>{filters['C/GR'].groups.GR=e.target.checked; applyFilters();};
+    document.getElementById('all').onclick=()=>{filters['C/GR'].groups.C=true;filters['C/GR'].groups.GR=true;renderLegend();applyFilters();};
+    document.getElementById('none').onclick=()=>{filters['C/GR'].groups.C=false;filters['C/GR'].groups.GR=false;renderLegend();applyFilters();};
+  }
+  renderLegend();
+
+  function inKmRadius(lat,lng){
+    const v=parseFloat(document.getElementById('km').value); if(isNaN(v)||v<=0) return true;
+    return havKm(ORIGIN.lat,ORIGIN.lng,lat,lng)<=v+1e-9;
+  }
+
+  let routeLayer=null, currentFocus=null;
+  function clearRoute(){ if(routeLayer){ map.removeLayer(routeLayer); routeLayer=null; } }
+  function showFocus(Lr){ currentFocus=Lr; document.getElementById('routeHint').style.display='block'; applyFilters(); }
+  function clearFocus(){ currentFocus=null; document.getElementById('routeHint').style.display='none'; clearRoute(); applyFilters(); }
+  document.getElementById('btnShowAll').onclick=clearFocus;
+
+  async function drawRouteTo(lat,lng,color){
+    try{
+      const res=await fetch(`https://router.project-osrm.org/route/v1/driving/${ORIGIN.lng},${ORIGIN.lat};${lng},${lat}?overview=full&geometries=geojson&alternatives=false`);
+      if(!res.ok) throw 0; const j=await res.json(); const r=j.routes&&j.routes[0]; if(!r) throw 0;
+      clearRoute(); routeLayer=L.geoJSON(r.geometry,{pane:'routePane',style:{color,weight:5,opacity:.9}}).addTo(map);
+      const b=routeLayer.getBounds(); b.extend([ORIGIN.lat,ORIGIN.lng]); b.extend([lat,lng]); map.fitBounds(b,{padding:[30,30]});
+      return {distanceKm:r.distance/1000,durationMin:r.duration/60};
+    }catch{ setStatus('No se pudo obtener la ruta OSRM.'); return null; }
+  }
+
+  function makePopup(Lr, extra){
+    const km=havKm(ORIGIN.lat,ORIGIN.lng,Lr.lat,Lr.lng);
+    const cert = Lr.cert && Lr.cert!=='No encontrado' ? `<div style="margin-top:6px"><a href="${Lr.cert}" target="_blank" rel="noopener">🏷️ Certificado / Ficha</a></div>` : '';
+    const pdf = Lr.pdf ? `<div style="margin-top:6px"><a href="${Lr.pdf.url}" target="_blank" rel="noopener">📄 ${Lr.pdf.name}</a></div>` : '';
+    const osrm=extra&&extra.osrm? `<div style="font-size:12px;margin-top:4px">Ruta (OSRM): <b>${(osrmDist=extra.osrm.distanceKm, (osrmDist>=100?osrmDist.toFixed(0):osrmDist.toFixed(1))) } km</b> · <b>${Math.round(extra.osrm.durationMin)} min</b></div>` : '';
+    const back=currentFocus? `<button id="popupShowAll" style="margin-top:8px">👁️ Mostrar todas</button>`:'';
+    return `
+    <div style="font:14px Arial;max-width:520px">
+      <h3 style="margin:0 0 4px 0">${Lr.name}</h3>
+      <div style="font-size:12px;color:#444">Tipo: <b>${Lr.tipo==='C'?'Cantera (C)':'Yacimiento (GR)'}</b></div>
+      <div style="font-size:12px;color:#666">Ubicación: ${Lr.loc||'-'}</div>
+      <div style="font-size:12px;margin-top:6px">Distancia (recta): <b>${fmtKm(km)}</b></div>
+      <div style="margin-top:6px"><a href="https://www.google.com/maps/dir/?api=1&origin=${ORIGIN.lat},${ORIGIN.lng}&destination=${Lr.lat},${Lr.lng}&travelmode=driving" target="_blank" rel="noopener">🧭 Ver ruta en Google Maps</a></div>
+      ${osrm}${cert}${pdf}
+      <div style="font-size:11px;color:#666;margin-top:8px">Coord: ${Lr.lat.toFixed(5)}, ${Lr.lng.toFixed(5)}</div>
+      ${back}
+    </div>`;
+  }
+
+  function addPoint(obj){
+    const icon=markerIcon(COLORS[obj.tipo]||'#1565c0');
+    const m=L.marker([obj.lat,obj.lng],{icon}).addTo(map);
+    const p=L.popup({autoPan:true,closeButton:true});
+    const layer={...obj, marker:m, popup:p};
+    m.on('click', async ()=>{
+      showFocus(layer);
+      const osrm=await drawRouteTo(layer.lat,layer.lng,COLORS[layer.tipo]);
+      p.setContent(makePopup(layer,{osrm})); m.bindPopup(p).openPopup();
+      setTimeout(()=>{ const b=document.getElementById('popupShowAll'); if(b) b.onclick=()=>{ clearFocus(); m.closePopup(); }; },50);
+    });
+    m.on('popupopen', ()=>{ if(!currentFocus) p.setContent(makePopup(layer)); });
+    layers.push(layer); bounds.push([obj.lat,obj.lng]);
+  }
+
+  function applyFilters(){
+    // Foco en una cantera (solo mostrar esa)
+    if(currentFocus){
+      layers.forEach(Lr=>{ if(Lr===currentFocus){ if(!map.hasLayer(Lr.marker)) Lr.marker.addTo(map);} else{ if(map.hasLayer(Lr.marker)) map.removeLayer(Lr.marker);} });
+      // KML siguen con su visibilidad propia (checkbox), no se ocultan en foco.
+      refreshKmlVisibility();
+      return;
+    }
+    // C/GR + radio
+    layers.forEach(Lr=>{
+      const on = (filters['C/GR'].groups[Lr.tipo]!==false) && inKmRadius(Lr.lat,Lr.lng);
+      if(on){ if(!map.hasLayer(Lr.marker)) Lr.marker.addTo(map); } else { if(map.hasLayer(Lr.marker)) map.removeLayer(Lr.marker); }
+    });
+    refreshKmlVisibility();
+  }
+
+  function classifyTipo(nombre, tipoInst){
+    const s=((nombre||'')+' '+(tipoInst||'')).toLowerCase();
+    if(/gravera|áridos|aridos|yaci|zahorra|grava/.test(s)) return 'GR';
+    if(/cantera/.test(s)) return 'C';
+    if(/planta.*cantera/.test(s)) return 'C';
+    return 'C';
+  }
+
+  function parseCoordsFromLoc(text){
+    if(!text) return null;
+    const ll=parseLatLonInline(text); if(ll) return ll;
+    const utm=parseUTM(text); if(utm) return utm;
+    return null;
+  }
+
+  async function geocode(q){
+    const url=new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format','json'); url.searchParams.set('limit','1'); url.searchParams.set('q', q+', España');
+    const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return null; const j=await r.json(); if(!j[0]) return null;
+    return {lat:parseFloat(j[0].lat),lng:parseFloat(j[0].lon)};
+  }
+
+  async function handleExcel(file){
+    setStatus('Leyendo Excel…');
+    layers.forEach(Lr=>map.removeLayer(Lr.marker)); layers=[]; bounds=[];
+    const ab=await file.arrayBuffer(); const wb=XLSX.read(ab,{type:'array'});
+    const ws=wb.Sheets['CANTERAS Y YACIMIENTOS']; if(!ws){ setStatus('Falta hoja "CANTERAS Y YACIMIENTOS".'); return; }
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false}); if(!rows||!rows.length){ setStatus('Hoja vacía.'); return; }
+    const hdr=rows[0]; const H=(h)=>slug(String(h||''));
+    const idxNombre=hdr.findIndex(h=>H(h).includes('denominacion')||H(h).includes('nombre'));
+    const idxTipoI =hdr.findIndex(h=>H(h).includes('tipo de instalacion'));
+    const idxLoc   =hdr.findIndex(h=>H(h).includes('localizacion exacta'));
+    const idxCert  =hdr.findIndex(h=>H(h).includes('enlace de consulta'));
+    let added=0;
+    for(const r of rows.slice(1)){
+      const nombre=(r[idxNombre]||'').toString().trim(); if(!nombre) continue;
+      const tipoInst=(r[idxTipoI]||'').toString().trim();
+      const loc=(r[idxLoc]||'').toString().trim();
+      const cert=(r[idxCert]||'').toString().trim();
+      const tipo=classifyTipo(nombre,tipoInst);
+      let coord=parseCoordsFromLoc(loc);
+      if(!coord && loc){ coord=await geocode(loc); }
+      if(!coord){ console.warn('Sin coordenadas:', nombre, loc); continue; }
+      const pdf = pickPdfByName(nombre);
+      addPoint({name:nombre,tipo,loc,lat:coord.lat,lng:coord.lng,cert:(/no encontrado/i.test(cert)?null:cert),pdf});
+      added++;
+    }
+    applyFilters(); renderLegend();
+    if(added){ const all=[...bounds,[ORIGIN.lat,ORIGIN.lng]]; map.fitBounds(all,{padding:[20,20]}); setStatus(`Cargadas ${added} localizaciones.`); }
+    else setStatus('No se añadió ningún punto (revisa columnas y direcciones).');
+  }
+
+  // -------------------
+  // NUEVO: KML/KMZ múltiple
+  // -------------------
+  const kmlSheet   = document.getElementById('kmlSheet');
+  const kmlList    = document.getElementById('kmlList');
+  const fileKMLInp = document.getElementById('fileKML');
+  const kmlAllBtn  = document.getElementById('kmlAll');
+  const kmlNoneBtn = document.getElementById('kmlNone');
+
+  const kmlLayers = []; // {name,color,layer,visible,bounds}
+
+  function randomColor(){
+    const h = Math.floor(Math.random()*360);
+    return `hsl(${h} 70% 40%)`;
+  }
+  function kmlStyleFactory(color){
+    return {
+      pane:'kmlPane',
+      color:color, weight:3, opacity:0.9,
+      fillColor:color, fillOpacity:0.15
+    };
+  }
+  function pointToLayerFactory(color){
+    return (feat, latlng)=>L.circleMarker(latlng,{pane:'kmlPane',radius:5,weight:2,fillOpacity:0.8,opacity:0.9,color:color,fillColor:color});
+  }
+
+  function refreshKmlLegend(){
+    if(!kmlLayers.length){ kmlSheet.style.display='none'; return; }
+    kmlSheet.style.display='block';
+    kmlList.innerHTML='';
+    kmlLayers.forEach((k,i)=>{
+      const row=document.createElement('div'); row.className='row';
+      row.innerHTML=`
+        <span class="swatch" style="background:${k.color}"></span>
+        <label style="flex:1 1 auto">
+          <input type="checkbox" data-i="${i}" ${k.visible?'checked':''}/> ${k.name}
+        </label>
+        <div class="actions">
+          <button data-zoom="${i}">Zoom</button>
+        </div>`;
+      kmlList.appendChild(row);
+    });
+    // Handlers
+    kmlList.querySelectorAll('input[type=checkbox]').forEach(chk=>{
+      chk.onchange=(e)=>{ const idx=+e.target.getAttribute('data-i'); kmlLayers[idx].visible=e.target.checked; refreshKmlVisibility(); };
+    });
+    kmlList.querySelectorAll('button[data-zoom]').forEach(btn=>{
+      btn.onclick=()=>{ const idx=+btn.getAttribute('data-zoom'); if(kmlLayers[idx].bounds) map.fitBounds(kmlLayers[idx].bounds,{padding:[20,20]}); };
+    });
+  }
+
+  function refreshKmlVisibility(){
+    kmlLayers.forEach(k=>{
+      const shouldBe=k.visible;
+      if(shouldBe && !map.hasLayer(k.layer)) k.layer.addTo(map);
+      if(!shouldBe && map.hasLayer(k.layer)) map.removeLayer(k.layer);
+    });
+  }
+
+  async function parseKmlFile(file){
+    const name=file.name.replace(/\.(kmz|kml)$/i,'');
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    try{
+      let kmlText=null;
+      if(ext==='kmz'){
+        const zip=await JSZip.loadAsync(file);
+        // Busca el primer .kml (prefiere doc.kml)
+        const kmlEntry = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+        if(!kmlEntry) throw new Error('KMZ sin KML interno');
+        kmlText=await kmlEntry.async('text');
+      }else{
+        kmlText=await file.text();
+      }
+      const dom=(new DOMParser()).parseFromString(kmlText,'text/xml');
+      const gj=toGeoJSON.kml(dom);
+      if(!gj || !gj.features || !gj.features.length) throw new Error('KML vacío');
+
+      const color=randomColor();
+      const layer=L.geoJSON(gj,{
+        pane:'kmlPane',
+        style:()=>kmlStyleFactory(color),
+        pointToLayer:pointToLayerFactory(color),
+        onEachFeature:(feat,layer)=>{
+          const props=feat&&feat.properties||{};
+          const nm=props.name||props.Nombre||'';
+          const desc=props.description||props.Descripcion||'';
+          const html=`<div style="font:13px Arial">
+            <div style="font-weight:600">${nm||name}</div>
+            ${desc?`<div style="margin-top:4px;font-size:12px;color:#555">${desc}</div>`:''}
+          </div>`;
+          layer.bindPopup(html);
+        }
+      });
+      const b=layer.getBounds && layer.getBounds();
+      kmlLayers.push({name, color, layer, visible:true, bounds:b && b.isValid && b.isValid()?b:null});
+      layer.addTo(map);
+      refreshKmlLegend();
+      setStatus(`Capa añadida: ${name}`);
+      return true;
+    }catch(err){
+      console.error('Error KML', err);
+      setStatus(`Error al cargar "${file.name}": ${err.message||err}`);
+      return false;
+    }
+  }
+
+  fileKMLInp.addEventListener('change', async (e)=>{
+    const files=[...(e.target.files||[])];
+    if(!files.length) return;
+    setStatus(`Cargando ${files.length} archivo(s) KML/KMZ…`);
+    for(const f of files){ await parseKmlFile(f); }
+    // auto-zoom a todas las capas KML + puntos + obra
+    const allBounds=[];
+    kmlLayers.forEach(k=>{ if(k.bounds) allBounds.push(k.bounds.getNorthWest(), k.bounds.getSouthEast()); });
+    bounds.forEach(b=>allBounds.push(b));
+    allBounds.push([ORIGIN.lat,ORIGIN.lng]);
+    if(allBounds.length) map.fitBounds(allBounds,{padding:[20,20]});
+    setStatus(`KML/KMZ cargados: ${kmlLayers.length}`);
+  });
+
+  kmlAllBtn.onclick=()=>{ kmlLayers.forEach(k=>k.visible=true); refreshKmlLegend(); refreshKmlVisibility(); };
+  kmlNoneBtn.onclick=()=>{ kmlLayers.forEach(k=>k.visible=false); refreshKmlLegend(); refreshKmlVisibility(); };
+
+  // Controles existentes
+  document.getElementById('fileXLSX').addEventListener('change',e=>{ const f=e.target.files?.[0]; if(f) handleExcel(f); });
+  document.getElementById('filePDF').addEventListener('change',e=>{ const fs=e.target.files; if(fs?.length){ indexPdfs(fs); setStatus(`Cargados ${fs.length} PDF(s).`);} });
+  document.getElementById('btnFit').onclick=()=>{ const all=[...bounds]; if(obraMarker) all.push([ORIGIN.lat,ORIGIN.lng]);
+    // incluir KML
+    kmlLayers.forEach(k=>{ if(k.bounds){ all.push(k.bounds.getNorthWest(), k.bounds.getSouthEast()); } });
+    if(all.length) map.fitBounds(all,{padding:[20,20]}); else map.setView([ORIGIN.lat,ORIGIN.lng],11);
+  };
+  document.getElementById('btnApplyKm').onclick=applyFilters; document.getElementById('btnClearKm').onclick=()=>{ document.getElementById('km').value=''; applyFilters(); };
+  document.getElementById('km').addEventListener('input',applyFilters);
+
+  // Logo + título
+  document.getElementById('fileLogo').addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f) return; const img=document.getElementById('logoImg'); img.src=URL.createObjectURL(f); img.style.display='block'; });
+  const titleEl=document.getElementById('mapTitle'); titleEl.addEventListener('input',()=>{ try{ localStorage.setItem('mapTitle_canteras', titleEl.textContent||''); }catch{} }); try{ const t=localStorage.getItem('mapTitle_canteras'); if(t) titleEl.textContent=t; }catch{}
+
+  // Fijar obra
+  let picking=false; const btnPick=document.getElementById('btnPick');
+  btnPick.onclick=()=>{ picking=!picking; btnPick.textContent=picking?'✅ Click en el mapa… (ESC)':'📍 Fijar obra por click'; btnPick.style.borderColor=picking?'#16a34a':'#ddd'; };
+  map.on('click',e=>{ if(!picking) return; setOrigin(e.latlng.lat,e.latlng.lng); obraMarker.openPopup(); picking=false; btnPick.textContent='📍 Fijar obra por click'; btnPick.style.borderColor='#ddd'; });
+  window.addEventListener('keydown',(ev)=>{ if(ev.key==='Escape'&&picking){ picking=false; btnPick.textContent='📍 Fijar obra por click'; btnPick.style.borderColor='#ddd'; }});
+  document.getElementById('btnSetLatLon').onclick=()=>{ const v=(document.getElementById('inpLatLon').value||'').trim(); const m=v.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/); if(!m){ setStatus('Formato lat,lon inválido'); return;} setOrigin(parseFloat(m[1]),parseFloat(m[3])); map.setView([ORIGIN.lat,ORIGIN.lng],13); obraMarker.openPopup(); };
+
+  setOrigin(ORIGIN.lat,ORIGIN.lng,ORIGIN.name); setStatus('Listo. Carga el Excel/PDFs y/o varios KML/KMZ. Controles de visibilidad en la leyenda.');
+})();
+</script>
+</body>
+</html>
